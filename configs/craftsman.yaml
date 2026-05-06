@@ -1,0 +1,5 @@
+# Craftsman baseline — fixed persona weights [0, 0, 1]
+# Inherits all defaults from default.yaml
+
+blending_mode: "fixed_craftsman"
+run_name: "craftsman_baseline"

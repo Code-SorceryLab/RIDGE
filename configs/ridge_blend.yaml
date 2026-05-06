@@ -1,0 +1,9 @@
+# RIDGE adaptive blending — state-conditioned sigmoid weights
+# Inherits all defaults from default.yaml
+
+blending_mode: "ridge"
+sigmoid_temperature: 1.0
+health_threshold: 0.3
+hunger_threshold: 0.3
+progress_threshold: 0.5
+run_name: "ridge_adaptive"

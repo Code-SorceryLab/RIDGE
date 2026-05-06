@@ -1,0 +1,5 @@
+# Survivor baseline — fixed persona weights [0, 1, 0]
+# Inherits all defaults from default.yaml
+
+blending_mode: "fixed_survivor"
+run_name: "survivor_baseline"

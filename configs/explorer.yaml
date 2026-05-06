@@ -1,0 +1,5 @@
+# Explorer baseline — fixed persona weights [1, 0, 0]
+# Inherits all defaults from default.yaml
+
+blending_mode: "fixed_explorer"
+run_name: "explorer_baseline"

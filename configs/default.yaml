@@ -1,0 +1,39 @@
+# Environment
+env_name: "Crafter"
+frame_size: 64
+frame_stack: 1
+
+# PPO
+lr: 3e-4
+gamma: 0.99
+gae_lambda: 0.95
+clip_epsilon: 0.2
+entropy_coef: 0.01
+value_coef: 0.5
+max_grad_norm: 0.5
+ppo_epochs: 4
+num_minibatches: 4
+rollout_steps: 256
+
+# Training
+total_steps: 1_000_000
+num_seeds: 5
+checkpoint_every: 50_000
+seed: 42
+num_threads: 5
+
+# RIDGE
+blending_mode: "ridge"  # ridge | fixed_explorer | fixed_survivor | fixed_craftsman
+sigmoid_temperature: 1.0
+health_threshold: 0.3
+hunger_threshold: 0.3
+progress_threshold: 0.5
+
+# Viewer
+live_view: false
+render_fps: 15
+
+# Logging
+log_dir: "tensorboard_logs"
+checkpoint_dir: "checkpoints"
+run_name: "ridge_default"

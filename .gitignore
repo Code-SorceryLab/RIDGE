@@ -1,0 +1,44 @@
+# Claude instructions — never commit
+Claude/CLAUDE.md
+CLAUDE.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+venv/
+.venv/
+env/
+
+# Training artifacts
+runs/
+logs/
+tensorboard_logs/
+checkpoints/
+*.pt
+*.pth
+*.onnx
+saved_models/
+results/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data
+*.zip
+*.tar.gz
+wandb/
+
+Claude/
