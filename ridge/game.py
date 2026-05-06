@@ -205,9 +205,14 @@ class CrafterWrapper:
         pos = player.get("pos", (0, 0))
         info["player_pos"] = tuple(pos) if hasattr(pos, "__iter__") else (0, 0)
 
-        # Track visited tiles for explorer reward
-        self._visited_positions.add(info["player_pos"])
+        # Track visited tiles for explorer reward.
+        # delta_visited == 1 only on steps that discover a new tile,
+        # giving a dense per-step signal rather than a growing cumulative total.
+        pos = info["player_pos"]
+        before = len(self._visited_positions)
+        self._visited_positions.add(pos)
         info["visited_count"] = len(self._visited_positions)
+        info["delta_visited"] = len(self._visited_positions) - before  # 0 or 1
 
         info["steps_this_episode"] = self._steps_this_episode
         return info
@@ -285,7 +290,8 @@ class CrafterWrapper:
 
     def close(self) -> None:
         """Close the underlying Crafter environment."""
-        self._env.close()
+        if hasattr(self._env, "close"):
+            self._env.close()
 
 
 def make_env(config: dict[str, Any], seed: int | None = None) -> CrafterWrapper:

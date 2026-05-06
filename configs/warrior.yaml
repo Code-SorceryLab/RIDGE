@@ -1,0 +1,5 @@
+# Warrior baseline — fixed persona weights [0, 0, 0, 1]
+# Inherits all defaults from default.yaml
+
+blending_mode: "fixed_warrior"
+run_name: "warrior_baseline"

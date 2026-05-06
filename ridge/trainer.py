@@ -17,6 +17,14 @@ from ridge.utils import ensure_dir, get_device, set_seeds
 
 logger = logging.getLogger(__name__)
 
+ALL_ACHIEVEMENTS = [
+    "collect_coal", "collect_diamond", "collect_drink", "collect_iron",
+    "collect_sapling", "collect_stone", "collect_wood", "defeat_skeleton",
+    "defeat_zombie", "eat_cow", "eat_plant", "make_iron_pickaxe",
+    "make_iron_sword", "make_stone_pickaxe", "make_stone_sword",
+    "make_wood_pickaxe", "make_wood_sword", "place_furnace", "place_plant",
+    "place_stone", "place_table", "wake_up",
+]
 
 class Trainer:
     """Manages the full RIDGE training loop.
@@ -87,12 +95,24 @@ class Trainer:
         # Mute game logger during training to prevent it from breaking the progress bar
         logging.getLogger("ridge.game").setLevel(logging.WARNING)
 
+    # -------------------------------------------------------------------------
+
+    def _fresh_unlocked(self) -> dict[str, set]:
+        """Empty per-persona achievement tracker for a new episode.
+
+        Passed into compute_blended_reward so each achievement bonus
+        fires at most once per episode per persona.
+        """
+        return {"explorer": set(), "survivor": set(), "craftsman": set(), "warrior": set()}
+
+    # -------------------------------------------------------------------------
 
     def train(self) -> None:
         """Run the full training loop until total_steps is reached."""
         obs, info = self._env.reset()
         current_weights = np.array([1.0 / 3, 1.0 / 3, 1.0 / 3], dtype=np.float32)
         episode_start_step = 0
+        episode_unlocked = self._fresh_unlocked()
 
         # Prettier progress bar
         pbar = tqdm(
@@ -106,16 +126,17 @@ class Trainer:
         fps_step_count = 0
 
         while self._global_step < self._total_steps:
-            # ----------------------------------------------------------------
             # Collect rollout
-            # ----------------------------------------------------------------
+            # ------------------------------------------------------------------
             self._buffer.clear()
             update_start = time.time()
 
             for _ in range(self._rollout_steps):
                 state_vec = self._env.extract_state_vector(info)
+
+                # episode_unlocked ensures each bonus fires at most once per episode
                 blended_reward, weights, per_persona = compute_blended_reward(
-                    info, state_vec, self._config
+                    info, state_vec, self._config, episode_unlocked
                 )
                 current_weights = weights
 
@@ -126,11 +147,22 @@ class Trainer:
 
                 self._env.update_episode_stats(blended_reward, next_info, weights)
 
+                # per_persona_arr: actual per-persona rewards this step, shape (3,).
+                # Stored separately from per_head_val (which are VALUE ESTIMATES).
+                # compute_advantages uses these to build per-head return targets G_i.
+                per_persona_arr = np.array([
+                    per_persona["explorer"],
+                    per_persona["survivor"],
+                    per_persona["craftsman"],
+                    per_persona["warrior"],
+                ], dtype=np.float32)
+
                 self._buffer.obs.append(obs.copy())
                 self._buffer.actions.append(action)
                 self._buffer.log_probs.append(log_prob)
                 self._buffer.values.append(value)
-                self._buffer.per_head_values.append(per_head_val)
+                self._buffer.per_head_values.append(per_head_val)          # V_i — for bootstrap
+                self._buffer.persona_step_rewards.append(per_persona_arr)  # r_i — for G_i targets
                 self._buffer.rewards.append(blended_reward)
                 self._buffer.dones.append(done)
                 self._buffer.persona_weights.append(weights.copy())
@@ -149,8 +181,9 @@ class Trainer:
                     self._episode_count += 1
 
                     obs, info = self._env.reset()
-                    current_weights = np.array([1.0 / 3, 1.0 / 3, 1.0 / 3], dtype=np.float32)
+                    current_weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
                     episode_start_step = self._global_step
+                    episode_unlocked = self._fresh_unlocked()  # clear for next episode
                 else:
                     obs = next_obs
                     info = next_info
@@ -158,19 +191,31 @@ class Trainer:
                 if self._global_step >= self._total_steps:
                     break
 
-            # ----------------------------------------------------------------
+            # ------------------------------------------------------------------
             # PPO update
-            # ----------------------------------------------------------------
+            # ------------------------------------------------------------------
+            # Bootstrap: run network once on post-rollout obs to get both
+            # blended last_value and per-head last values for independent GAE.
             with torch.no_grad():
-                state_vec = self._env.extract_state_vector(info)
-                _, _, last_value, _ = self._agent.select_action(obs, current_weights)
+                obs_t = torch.as_tensor(
+                    obs, dtype=torch.float32, device=self._device
+                ).unsqueeze(0)
+                w_t = torch.as_tensor(
+                    current_weights, dtype=torch.float32, device=self._device
+                )
+                _, last_value_t, last_per_head_t = self._agent.network(obs_t, w_t)
+                last_value        = float(last_value_t.squeeze().item())
+                last_per_head_val = last_per_head_t.squeeze(0).cpu().numpy()  # (3,)
 
-            advantages, returns = self._agent.compute_advantages(self._buffer, last_value)
-            update_metrics = self._agent.ppo_update(self._buffer, advantages, returns)
+            advantages, returns, per_persona_returns = self._agent.compute_advantages(
+                self._buffer, last_value, last_per_head_val
+            )
+            update_metrics = self._agent.ppo_update(
+                self._buffer, advantages, returns, per_persona_returns
+            )
 
             update_time = time.time() - update_start
 
-            # FPS calculation
             now = time.time()
             elapsed = now - fps_timer
             fps = fps_step_count / elapsed if elapsed > 0 else 0.0
@@ -179,16 +224,15 @@ class Trainer:
 
             self._log_update(update_metrics, fps, update_time)
 
-            # Checkpointing
             if self._global_step % self._checkpoint_every < self._rollout_steps:
                 self._save_periodic_checkpoint()
 
-            # Progress bar postfix
             pbar.update(min(self._rollout_steps, self._total_steps - (self._global_step - self._rollout_steps)))
             pbar.set_postfix({
-                "ep": self._episode_count,
+                "ep":    self._episode_count,
+                "score": f"{self._compute_crafter_score():.3f}",
                 "achiev": f"{len(self._cumulative_achievements)}/22",
-                "w": f"[{current_weights[0]:.2f},{current_weights[1]:.2f},{current_weights[2]:.2f}]",
+                "w": f"[{current_weights[0]:.2f},{current_weights[1]:.2f},{current_weights[2]:.2f},{current_weights[3]:.2f}]",
                 "fps": f"{fps:.0f}",
             })
 
@@ -196,6 +240,27 @@ class Trainer:
         self._writer.close()
         self._env.close()
         logger.info("Training complete — %d steps, %d episodes", self._global_step, self._episode_count)
+
+    # -------------------------------------------------------------------------
+    # Logging helpers
+    # -------------------------------------------------------------------------
+
+    def _compute_crafter_score(self) -> float:
+        """Official Crafter score = mean of sqrt(per-achievement unlock rates).
+
+        score = (1/22) * Σ sqrt(unlock_rate_i)
+
+        Computed over the last 100 episodes (_achievement_window).
+        Comparable to published Crafter benchmark results.
+        """
+        if not self._achievement_window:
+            return 0.0
+        n = len(self._achievement_window)
+        score = 0.0
+        for ach in ALL_ACHIEVEMENTS:
+            rate = sum(1 for ep in self._achievement_window if ach in ep) / n
+            score += np.sqrt(rate)
+        return score / len(ALL_ACHIEVEMENTS)
 
     def _log_episode(
         self,
@@ -217,11 +282,13 @@ class Trainer:
         w.add_scalar("reward/explorer", per_persona["explorer"], s)
         w.add_scalar("reward/survivor", per_persona["survivor"], s)
         w.add_scalar("reward/craftsman", per_persona["craftsman"], s)
+        w.add_scalar("reward/warrior",   per_persona["warrior"],   s)
 
         mean_w = stats["mean_weights"]
-        w.add_scalar("weights/explorer", mean_w[0], s)
-        w.add_scalar("weights/survivor", mean_w[1], s)
+        w.add_scalar("weights/explorer",  mean_w[0], s)
+        w.add_scalar("weights/survivor",  mean_w[1], s)
         w.add_scalar("weights/craftsman", mean_w[2], s)
+        w.add_scalar("weights/warrior",   mean_w[3], s)
 
         ach_count = stats["achievement_count"]
         w.add_scalar("achievements/count", ach_count, s)
@@ -238,9 +305,10 @@ class Trainer:
             w.add_scalar(f"achievements/{ach_name}", rate, s)
 
         w.add_scalar("episode/length", stats["steps"], s)
-        w.add_scalar("episode/score", stats["score"], s)
 
-        # Save best checkpoint by achievement count
+        crafter_score = self._compute_crafter_score()
+        w.add_scalar("episode/crafter_score", crafter_score, s)
+
         if ach_count > self._best_achievement_count:
             self._best_achievement_count = ach_count
             self._agent.save_checkpoint(str(Path(self._ckpt_dir) / "best.pt"))
@@ -256,19 +324,19 @@ class Trainer:
         """
         s = self._global_step
         w = self._writer
-        w.add_scalar("agent/policy_loss", metrics["policy_loss"], s)
-        w.add_scalar("agent/value_loss", metrics["value_loss"], s)
-        w.add_scalar("agent/entropy", metrics["entropy"], s)
-        w.add_scalar("agent/value_loss_explorer", metrics["value_loss_explorer"], s)
-        w.add_scalar("agent/value_loss_survivor", metrics["value_loss_survivor"], s)
+        w.add_scalar("agent/policy_loss",          metrics["policy_loss"],          s)
+        w.add_scalar("agent/value_loss",           metrics["value_loss"],           s)
+        w.add_scalar("agent/entropy",              metrics["entropy"],              s)
+        w.add_scalar("agent/value_loss_explorer",  metrics["value_loss_explorer"],  s)
+        w.add_scalar("agent/value_loss_survivor",  metrics["value_loss_survivor"],  s)
         w.add_scalar("agent/value_loss_craftsman", metrics["value_loss_craftsman"], s)
-        w.add_scalar("agent/kl_divergence", metrics["kl_divergence"], s)
-        w.add_scalar("agent/clip_fraction", metrics["clip_fraction"], s)
-        w.add_scalar("perf/fps", fps, s)
-        w.add_scalar("perf/update_time", update_time, s)
+        w.add_scalar("agent/value_loss_warrior",   metrics["value_loss_warrior"],   s)
+        w.add_scalar("agent/kl_divergence",        metrics["kl_divergence"],        s)
+        w.add_scalar("agent/clip_fraction",        metrics["clip_fraction"],        s)
+        w.add_scalar("perf/fps",                   fps,                             s)
+        w.add_scalar("perf/update_time",           update_time,                     s)
 
     def _save_periodic_checkpoint(self) -> None:
-        """Save a periodic checkpoint keyed by step count."""
         path = str(Path(self._ckpt_dir) / f"step_{self._global_step}.pt")
         self._agent.save_checkpoint(path)
 
