@@ -47,8 +47,8 @@ _EXPLORER_BONUSES = {
     "collect_iron":    2.0,
     "collect_diamond": 6.0,
     "eat_plant":       0.5,
-    "place_stone":     0.3,
     "place_plant":     0.5,
+    "wake_up":         0.3,
 }
 
 _SURVIVOR_BONUSES = {
@@ -56,8 +56,6 @@ _SURVIVOR_BONUSES = {
     "eat_cow":         1.5,
     "eat_plant":       1.0,
     "wake_up":         1.5,
-    "collect_wood":    0.3,   # need wood for a bed/shelter
-    "place_stone":     0.3,
 }
 
 _CRAFTSMAN_BONUSES = {
@@ -71,9 +69,7 @@ _CRAFTSMAN_BONUSES = {
     "collect_iron":       4.0,
     "make_iron_pickaxe":  5.0,
     "collect_diamond":    8.0,
-    "place_plant":        0.5,
-    "place_stone":        0.5,
-    "collect_sapling":    0.5,
+    "wake_up":            0.5,
 }
 
 _WARRIOR_BONUSES = {
@@ -88,8 +84,9 @@ _WARRIOR_BONUSES = {
     "make_iron_sword":    6.0,   # top priority
     "defeat_zombie":      4.0,
     "defeat_skeleton":    5.0,
-    "eat_cow":            0.5,   # food keeps warrior alive
+    "eat_cow":            0.5,
     "eat_plant":          0.3,
+    "wake_up":            0.4,
 }
 
 
@@ -101,7 +98,8 @@ def explorer_reward(info: dict[str, Any], unlocked: set[str]) -> float:
     """Reward exploration: new tile discovery + broad resource collection."""
     reward = 0.0
     reward += 0.10 * info.get("delta_visited", 0)
-    reward += 0.001 * min(info.get("visited_count", 0), 200)
+    energy = info.get("energy", 9) / 9.0
+    if energy < 0.3: reward -= 0.2
     for name, bonus in _EXPLORER_BONUSES.items():
         if info.get("achievements", {}).get(name, 0) and name not in unlocked:
             unlocked.add(name)
@@ -136,6 +134,9 @@ def survivor_reward(info: dict[str, Any], unlocked: set[str]) -> float:
 def craftsman_reward(info: dict[str, Any], unlocked: set[str]) -> float:
     """Reward crafting: inventory stockpile + tech-tree milestones."""
     reward = 0.0
+    energy = info.get("energy", 9) / 9.0
+    reward += 0.05 * energy
+    if energy < 0.3: reward -= 0.3
     inv = info.get("inventory", {})
     reward += 0.005 * min(inv.get("wood",    0), 10)
     reward += 0.008 * min(inv.get("stone",   0), 10)
@@ -160,7 +161,9 @@ def warrior_reward(info: dict[str, Any], unlocked: set[str]) -> float:
 
     # Light health shaping — warriors expect damage, don't over-penalise
     health = info.get("health", 9) / 9.0
+    energy = info.get("energy", 9) / 9.0
     reward += 0.05 * health
+    if energy < 0.3: reward -= 0.2
 
     for name, bonus in _WARRIOR_BONUSES.items():
         if info.get("achievements", {}).get(name, 0) and name not in unlocked:
@@ -175,7 +178,7 @@ def warrior_reward(info: dict[str, Any], unlocked: set[str]) -> float:
 #  Output order: [w_explorer, w_survivor, w_craftsman, w_warrior]
 #
 #  Signals:
-#    Explorer  — (0.35 - progress): strong early, yields as agent specialises
+#    Explorer  — (0.10 - progress): strong early, yields after ~2 achievements
 #    Survivor  — need = 1 - min(health, food, drink): live every step
 #    Craftsman — tool_progress [0,1]: rises through all crafting tiers
 #    Warrior   — weapon_tier [0,1] + kill bonus: activates once armed
@@ -220,7 +223,7 @@ def sigma(state_vector: np.ndarray, config: dict[str, Any]) -> np.ndarray:
         return 1.0 / (1.0 + np.exp(-max(-20., min(20., x / temp))))
 
     # Explorer: strong early, fades as agent specialises
-    w_e = _sigmoid(4.0 * sharpness * (0.35 - progress))
+    w_e = _sigmoid(4.0 * sharpness * (0.10 - progress))
 
     # Survivor: driven by live need signal — varies every step
     need  = 1.0 - min(health, food, drink)
@@ -281,4 +284,12 @@ def compute_blended_reward(
     blended = float(
         weights[0] * r_e + weights[1] * r_s + weights[2] * r_c + weights[3] * r_w
     )
+
+    # Unconditional sleep bonus — outside persona blending so it's never
+    # diluted by weight shifts. Fires once per episode regardless of mode.
+    global_unlocked = episode_unlocked.setdefault("_global", set())
+    if info.get("achievements", {}).get("wake_up", 0) and "wake_up" not in global_unlocked:
+        global_unlocked.add("wake_up")
+        blended += 0.5
+
     return blended, weights, per_persona

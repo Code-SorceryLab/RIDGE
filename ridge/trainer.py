@@ -103,16 +103,17 @@ class Trainer:
         Passed into compute_blended_reward so each achievement bonus
         fires at most once per episode per persona.
         """
-        return {"explorer": set(), "survivor": set(), "craftsman": set(), "warrior": set()}
+        return {"explorer": set(), "survivor": set(), "craftsman": set(), "warrior": set(), "_global": set()}
 
     # -------------------------------------------------------------------------
 
     def train(self) -> None:
         """Run the full training loop until total_steps is reached."""
         obs, info = self._env.reset()
-        current_weights = np.array([1.0 / 3, 1.0 / 3, 1.0 / 3], dtype=np.float32)
+        current_weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
         episode_start_step = 0
         episode_unlocked = self._fresh_unlocked()
+        ach_history: list[str] = []
 
         # Prettier progress bar
         pbar = tqdm(
@@ -140,7 +141,8 @@ class Trainer:
                 )
                 current_weights = weights
 
-                action, log_prob, value, per_head_val = self._agent.select_action(obs, weights)
+                ach_history = info.get("ach_history", [])
+                action, log_prob, value, per_head_val = self._agent.select_action(obs, weights, ach_history)
 
                 next_obs, _, terminated, truncated, next_info = self._env.step(action)
                 done = terminated or truncated
@@ -163,6 +165,10 @@ class Trainer:
                 self._buffer.values.append(value)
                 self._buffer.per_head_values.append(per_head_val)          # V_i — for bootstrap
                 self._buffer.persona_step_rewards.append(per_persona_arr)  # r_i — for G_i targets
+                from ridge.agent import ACH_TO_IDX, ACH_HISTORY_LEN, PAD_IDX
+                hist_indices = [ACH_TO_IDX.get(a, PAD_IDX) for a in ach_history[-ACH_HISTORY_LEN:]]
+                hist_padded  = [PAD_IDX] * (ACH_HISTORY_LEN - len(hist_indices)) + hist_indices
+                self._buffer.ach_histories.append(np.array(hist_padded, dtype=np.int64))
                 self._buffer.rewards.append(blended_reward)
                 self._buffer.dones.append(done)
                 self._buffer.persona_weights.append(weights.copy())
@@ -184,6 +190,8 @@ class Trainer:
                     current_weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
                     episode_start_step = self._global_step
                     episode_unlocked = self._fresh_unlocked()  # clear for next episode
+                    ach_history = []
+                    ach_history = []
                 else:
                     obs = next_obs
                     info = next_info
@@ -197,15 +205,13 @@ class Trainer:
             # Bootstrap: run network once on post-rollout obs to get both
             # blended last_value and per-head last values for independent GAE.
             with torch.no_grad():
-                obs_t = torch.as_tensor(
-                    obs, dtype=torch.float32, device=self._device
-                ).unsqueeze(0)
-                w_t = torch.as_tensor(
-                    current_weights, dtype=torch.float32, device=self._device
-                )
-                _, last_value_t, last_per_head_t = self._agent.network(obs_t, w_t)
+                from ridge.agent import history_to_tensor
+                obs_t  = torch.as_tensor(obs, dtype=torch.float32, device=self._device).unsqueeze(0)
+                w_t    = torch.as_tensor(current_weights, dtype=torch.float32, device=self._device)
+                hist_t = history_to_tensor(ach_history, self._device)
+                _, last_value_t, last_per_head_t = self._agent.network(obs_t, w_t, hist_t)
                 last_value        = float(last_value_t.squeeze().item())
-                last_per_head_val = last_per_head_t.squeeze(0).cpu().numpy()  # (3,)
+                last_per_head_val = last_per_head_t.squeeze(0).cpu().numpy()
 
             advantages, returns, per_persona_returns = self._agent.compute_advantages(
                 self._buffer, last_value, last_per_head_val

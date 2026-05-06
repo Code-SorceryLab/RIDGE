@@ -38,7 +38,7 @@ from ridge.utils import ensure_dir, get_device, load_default_config, set_seeds, 
 logger = logging.getLogger(__name__)
 
 # Default sharpness values to sweep — covers near-uniform → hard-switch
-DEFAULT_SHARPNESS = [0.10, 0.20, 0.30, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.5, 3.0, 4.0]
+DEFAULT_SHARPNESS = [2.0, 1.5, 1.0, 0.5]
 
 ALL_ACHIEVEMENTS = [
     "collect_coal", "collect_diamond", "collect_drink", "collect_iron",
@@ -161,6 +161,9 @@ def run_one(
     run_config["blend_sharpness"] = sharpness
     run_config["blending_mode"]   = "ridge"
     run_config["seed"]            = seed
+    # Give each condition a unique run name so TensorBoard and checkpoints
+    # don't overwrite each other across sharpness values.
+    run_config["run_name"] = f"ridge_sharpness{sharpness:.2f}_seed{seed}"
 
     set_seeds(seed)
     device  = get_device()
