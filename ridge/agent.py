@@ -1,4 +1,3 @@
-
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -189,15 +188,16 @@ class PPOAgent:
 
     def __init__(self, config: dict[str, Any], num_actions: int, device: torch.device) -> None:
         """Initialise networks, optimiser, and hyperparameters.
-        self._config       = config
-        self._device       = device
-        self._num_actions  = num_actions
 
         Args:
             config: Project config dict.
             num_actions: Discrete action space size from Crafter.
             device: Torch device (CPU or CUDA).
         """
+        self._config       = config
+        self._device       = device
+        self._num_actions  = num_actions
+
         self.network   = RIDGENetwork(num_actions).to(device)
         self.optimizer = optim.Adam(self.network.parameters(), lr=float(config["lr"]))
 
