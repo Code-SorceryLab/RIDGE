@@ -96,7 +96,6 @@ class ValueHead(nn.Module):
 
 
 class RIDGENetwork(nn.Module):
-    """Full network: shared encoder + policy head + 3 value heads."""
     """Shared CNN encoder + policy head + 4 independent value heads.
 
     Head order: [explorer, survivor, craftsman, warrior]
@@ -189,15 +188,15 @@ class PPOAgent:
 
     def __init__(self, config: dict[str, Any], num_actions: int, device: torch.device) -> None:
         """Initialise networks, optimiser, and hyperparameters.
-        self._config       = config
-        self._device       = device
-        self._num_actions  = num_actions
 
         Args:
             config: Project config dict.
             num_actions: Discrete action space size from Crafter.
             device: Torch device (CPU or CUDA).
         """
+        self._config       = config
+        self._device       = device
+        self._num_actions  = num_actions
         self.network   = RIDGENetwork(num_actions).to(device)
         self.optimizer = optim.Adam(self.network.parameters(), lr=float(config["lr"]))
 
@@ -307,7 +306,7 @@ class PPOAgent:
             clip_fraction, value_loss_explorer, value_loss_survivor, value_loss_craftsman.
         """
         T          = len(buffer)
-        batch_size = T // self._num_minibatches
+        batch_size = max(1, T // self._num_minibatches)
 
         obs_t       = torch.as_tensor(np.stack(buffer.obs), dtype=torch.float32, device=self._device)
         actions_t   = torch.as_tensor(buffer.actions, dtype=torch.long,    device=self._device)
@@ -396,7 +395,7 @@ class PPOAgent:
         logger.info("Checkpoint saved to %s", path)
 
     def load_checkpoint(self, path: str) -> None:
-        ckpt = torch.load(path, map_location=self._device)
+        ckpt = torch.load(path, map_location=self._device, weights_only=False)
         self.network.load_state_dict(ckpt["network_state_dict"])
         self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         self.training_step = ckpt.get("training_step", 0)

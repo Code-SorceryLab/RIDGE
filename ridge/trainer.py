@@ -7,8 +7,18 @@ from typing import Any
 
 import numpy as np
 import torch
+from rich.console import Console as RichConsole
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
 
 from ridge.agent import PPOAgent, RolloutBuffer
 from ridge.game import CrafterWrapper, make_env
@@ -16,6 +26,7 @@ from ridge.rewards import compute_blended_reward
 from ridge.utils import ensure_dir, get_device, set_seeds
 
 logger = logging.getLogger(__name__)
+_console = RichConsole()
 
 ALL_ACHIEVEMENTS = [
     "collect_coal", "collect_diamond", "collect_drink", "collect_iron",
@@ -76,10 +87,6 @@ class Trainer:
         if "num_threads" in config:
             torch.set_num_threads(int(config["num_threads"]))
 
-        # Cumulative unique achievements seen across all episodes
-        self._cumulative_achievements: set[str] = set()
-
-        # Cumulative unique achievements seen across all episodes
         self._cumulative_achievements: set[str] = set()
 
         # Rolling window for per-achievement success rate (last 100 episodes)
@@ -110,136 +117,164 @@ class Trainer:
     def train(self) -> None:
         """Run the full training loop until total_steps is reached."""
         obs, info = self._env.reset()
-        current_weights = np.array([1.0 / 3, 1.0 / 3, 1.0 / 3], dtype=np.float32)
+        current_weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
         episode_start_step = 0
         episode_unlocked = self._fresh_unlocked()
 
-        # Prettier progress bar
-        pbar = tqdm(
-            total=self._total_steps, 
-            unit="step", 
-            dynamic_ncols=True,
-            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
-            smoothing=0.1
-        )
         fps_timer = time.time()
         fps_step_count = 0
+        fps = 0.0
 
-        while self._global_step < self._total_steps:
-            # Collect rollout
-            # ------------------------------------------------------------------
-            self._buffer.clear()
-            update_start = time.time()
+        progress = Progress(
+            SpinnerColumn(style="bold cyan"),
+            TextColumn("[bold cyan]RIDGE[/bold cyan]"),
+            BarColumn(
+                bar_width=None,
+                style="dark_green",
+                complete_style="green",
+                finished_style="bright_green",
+            ),
+            TaskProgressColumn(style="bold white"),
+            MofNCompleteColumn(),
+            TextColumn("[dim]·[/dim]"),
+            TimeElapsedColumn(),
+            TextColumn("[dim]<[/dim]"),
+            TimeRemainingColumn(),
+            TextColumn("[dim]·[/dim]"),
+            TextColumn("[yellow]{task.fields[fps]}fps[/yellow]"),
+            TextColumn("[dim]|[/dim]"),
+            TextColumn("ep:[cyan]{task.fields[ep]}[/cyan]"),
+            TextColumn("score:[magenta]{task.fields[score]}[/magenta]"),
+            TextColumn("A:[green]{task.fields[achiev]}[/green]"),
+            console=_console,
+            transient=False,
+        )
+        task_id = progress.add_task(
+            "RIDGE",
+            total=self._total_steps,
+            fps="0",
+            ep="0",
+            score="0.000",
+            achiev="0/22",
+        )
+        progress.start()
 
-            for _ in range(self._rollout_steps):
-                state_vec = self._env.extract_state_vector(info)
+        try:
+            while self._global_step < self._total_steps:
+                # Collect rollout
+                # ------------------------------------------------------------------
+                self._buffer.clear()
+                update_start = time.time()
 
-                # episode_unlocked ensures each bonus fires at most once per episode
-                blended_reward, weights, per_persona = compute_blended_reward(
-                    info, state_vec, self._config, episode_unlocked
+                for _ in range(self._rollout_steps):
+                    state_vec = self._env.extract_state_vector(info)
+
+                    blended_reward, weights, per_persona = compute_blended_reward(
+                        info, state_vec, self._config, episode_unlocked
+                    )
+                    current_weights = weights
+
+                    action, log_prob, value, per_head_val = self._agent.select_action(obs, weights)
+
+                    next_obs, _, terminated, truncated, next_info = self._env.step(action)
+                    done = terminated or truncated
+
+                    self._env.update_episode_stats(blended_reward, next_info, weights)
+
+                    per_persona_arr = np.array([
+                        per_persona["explorer"],
+                        per_persona["survivor"],
+                        per_persona["craftsman"],
+                        per_persona["warrior"],
+                    ], dtype=np.float32)
+
+                    self._buffer.obs.append(obs.copy())
+                    self._buffer.actions.append(action)
+                    self._buffer.log_probs.append(log_prob)
+                    self._buffer.values.append(value)
+                    self._buffer.per_head_values.append(per_head_val)          # V_i — for bootstrap
+                    self._buffer.persona_step_rewards.append(per_persona_arr)  # r_i — for G_i targets
+                    self._buffer.rewards.append(blended_reward)
+                    self._buffer.dones.append(done)
+                    self._buffer.persona_weights.append(weights.copy())
+                    self._buffer.infos.append(next_info)
+
+                    if self._live_view:
+                        self._push_live_frame(obs, next_info, weights)
+
+                    self._global_step += 1
+                    fps_step_count += 1
+
+                    if done:
+                        stats = self._env.get_episode_stats().to_dict()
+                        self._log_episode(stats, per_persona, weights)
+                        self._episode_count += 1
+
+                        obs, info = self._env.reset()
+                        current_weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
+                        episode_start_step = self._global_step
+                        episode_unlocked = self._fresh_unlocked()
+                    else:
+                        obs = next_obs
+                        info = next_info
+
+                    if self._global_step >= self._total_steps:
+                        break
+
+                # ------------------------------------------------------------------
+                # PPO update
+                # ------------------------------------------------------------------
+                with torch.no_grad():
+                    obs_t = torch.as_tensor(
+                        obs, dtype=torch.float32, device=self._device
+                    ).unsqueeze(0)
+                    w_t = torch.as_tensor(
+                        current_weights, dtype=torch.float32, device=self._device
+                    )
+                    _, last_value_t, last_per_head_t = self._agent.network(obs_t, w_t)
+                    last_value        = float(last_value_t.squeeze().item())
+                    last_per_head_val = last_per_head_t.squeeze(0).cpu().numpy()  # (3,)
+
+                advantages, returns, per_persona_returns = self._agent.compute_advantages(
+                    self._buffer, last_value, last_per_head_val
                 )
-                current_weights = weights
-
-                action, log_prob, value, per_head_val = self._agent.select_action(obs, weights)
-
-                next_obs, _, terminated, truncated, next_info = self._env.step(action)
-                done = terminated or truncated
-
-                self._env.update_episode_stats(blended_reward, next_info, weights)
-
-                # per_persona_arr: actual per-persona rewards this step, shape (3,).
-                # Stored separately from per_head_val (which are VALUE ESTIMATES).
-                # compute_advantages uses these to build per-head return targets G_i.
-                per_persona_arr = np.array([
-                    per_persona["explorer"],
-                    per_persona["survivor"],
-                    per_persona["craftsman"],
-                    per_persona["warrior"],
-                ], dtype=np.float32)
-
-                self._buffer.obs.append(obs.copy())
-                self._buffer.actions.append(action)
-                self._buffer.log_probs.append(log_prob)
-                self._buffer.values.append(value)
-                self._buffer.per_head_values.append(per_head_val)          # V_i — for bootstrap
-                self._buffer.persona_step_rewards.append(per_persona_arr)  # r_i — for G_i targets
-                self._buffer.rewards.append(blended_reward)
-                self._buffer.dones.append(done)
-                self._buffer.persona_weights.append(weights.copy())
-                self._buffer.infos.append(next_info)
-
-                # Live viewer hook
-                if self._live_view:
-                    self._push_live_frame(obs, next_info, weights)
-
-                self._global_step += 1
-                fps_step_count += 1
-
-                if done:
-                    stats = self._env.get_episode_stats().to_dict()
-                    self._log_episode(stats, per_persona, weights)
-                    self._episode_count += 1
-
-                    obs, info = self._env.reset()
-                    current_weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
-                    episode_start_step = self._global_step
-                    episode_unlocked = self._fresh_unlocked()  # clear for next episode
-                else:
-                    obs = next_obs
-                    info = next_info
-
-                if self._global_step >= self._total_steps:
-                    break
-
-            # ------------------------------------------------------------------
-            # PPO update
-            # ------------------------------------------------------------------
-            # Bootstrap: run network once on post-rollout obs to get both
-            # blended last_value and per-head last values for independent GAE.
-            with torch.no_grad():
-                obs_t = torch.as_tensor(
-                    obs, dtype=torch.float32, device=self._device
-                ).unsqueeze(0)
-                w_t = torch.as_tensor(
-                    current_weights, dtype=torch.float32, device=self._device
+                update_metrics = self._agent.ppo_update(
+                    self._buffer, advantages, returns, per_persona_returns
                 )
-                _, last_value_t, last_per_head_t = self._agent.network(obs_t, w_t)
-                last_value        = float(last_value_t.squeeze().item())
-                last_per_head_val = last_per_head_t.squeeze(0).cpu().numpy()  # (3,)
 
-            advantages, returns, per_persona_returns = self._agent.compute_advantages(
-                self._buffer, last_value, last_per_head_val
-            )
-            update_metrics = self._agent.ppo_update(
-                self._buffer, advantages, returns, per_persona_returns
-            )
+                update_time = time.time() - update_start
 
-            update_time = time.time() - update_start
+                now = time.time()
+                elapsed = now - fps_timer
+                fps = fps_step_count / elapsed if elapsed > 0 else 0.0
+                fps_timer = now
+                fps_step_count = 0
 
-            now = time.time()
-            elapsed = now - fps_timer
-            fps = fps_step_count / elapsed if elapsed > 0 else 0.0
-            fps_timer = now
-            fps_step_count = 0
+                self._log_update(update_metrics, fps, update_time)
 
-            self._log_update(update_metrics, fps, update_time)
+                if self._global_step % self._checkpoint_every < self._rollout_steps:
+                    self._save_periodic_checkpoint()
 
-            if self._global_step % self._checkpoint_every < self._rollout_steps:
-                self._save_periodic_checkpoint()
+                steps_advanced = min(
+                    self._rollout_steps,
+                    self._total_steps - (self._global_step - self._rollout_steps),
+                )
+                progress.update(
+                    task_id,
+                    advance=steps_advanced,
+                    fps=f"{fps:.0f}",
+                    ep=str(self._episode_count),
+                    score=f"{self._compute_crafter_score():.3f}",
+                    achiev=f"{len(self._cumulative_achievements)}/22",
+                )
 
-            pbar.update(min(self._rollout_steps, self._total_steps - (self._global_step - self._rollout_steps)))
-            pbar.set_postfix({
-                "ep":    self._episode_count,
-                "score": f"{self._compute_crafter_score():.3f}",
-                "achiev": f"{len(self._cumulative_achievements)}/22",
-                "w": f"[{current_weights[0]:.2f},{current_weights[1]:.2f},{current_weights[2]:.2f},{current_weights[3]:.2f}]",
-                "fps": f"{fps:.0f}",
-            })
-
-        pbar.close()
-        self._writer.close()
-        self._env.close()
-        logger.info("Training complete — %d steps, %d episodes", self._global_step, self._episode_count)
+        except KeyboardInterrupt:
+            logger.info("Training interrupted by user.")
+        finally:
+            progress.stop()
+            self._writer.close()
+            self._env.close()
+            logger.info("Training complete — %d steps, %d episodes", self._global_step, self._episode_count)
 
     # -------------------------------------------------------------------------
     # Logging helpers

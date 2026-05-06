@@ -14,17 +14,31 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+
+def _save_fig(fig: plt.Figure, out_path: str, dpi: int = 150) -> None:
+    """Save a figure as both PNG and PDF, creating parent dirs as needed."""
+    stem = str(Path(out_path).with_suffix(""))
+    png = stem + ".png"
+    pdf = stem + ".pdf"
+    Path(png).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(png, dpi=dpi)
+    fig.savefig(pdf)
+    logger.info("Saved %s  +  %s", png, pdf)
+
+
 CONDITION_COLOURS = {
-    "ridge_adaptive": "#4CAF50",
+    "ridge_adaptive":    "#4CAF50",
     "explorer_baseline": "#2196F3",
     "survivor_baseline": "#F44336",
     "craftsman_baseline": "#FF9800",
+    "warrior_baseline":  "#9C27B0",
 }
 CONDITION_LABELS = {
-    "ridge_adaptive": "RIDGE",
+    "ridge_adaptive":    "RIDGE",
     "explorer_baseline": "Explorer",
     "survivor_baseline": "Survivor",
     "craftsman_baseline": "Craftsman",
+    "warrior_baseline":  "Warrior",
 }
 
 
@@ -147,9 +161,8 @@ def plot_achievement_coverage(
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
+    _save_fig(fig, out_path)
     plt.close(fig)
-    logger.info("Saved achievement coverage plot to %s", out_path)
 
 
 def plot_training_stability(
@@ -179,9 +192,8 @@ def plot_training_stability(
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
+    _save_fig(fig, out_path)
     plt.close(fig)
-    logger.info("Saved training stability plot to %s", out_path)
 
 
 def plot_weight_trajectories(
@@ -200,9 +212,10 @@ def plot_weight_trajectories(
     fig, ax = plt.subplots(figsize=(10, 5))
 
     tag_colours = [
-        ("weights/explorer", "#4CAF50", "Explorer"),
-        ("weights/survivor", "#F44336", "Survivor"),
+        ("weights/explorer",  "#4CAF50", "Explorer"),
+        ("weights/survivor",  "#F44336", "Survivor"),
         ("weights/craftsman", "#FF9800", "Craftsman"),
+        ("weights/warrior",   "#9C27B0", "Warrior"),
     ]
     for tag, colour, label in tag_colours:
         x, mean_y, std_y = _mean_over_seeds(log_dir, run_name, tag)
@@ -218,9 +231,8 @@ def plot_weight_trajectories(
     ax.grid(True, alpha=0.3)
     ax.set_ylim(0, 1)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
+    _save_fig(fig, out_path)
     plt.close(fig)
-    logger.info("Saved weight trajectories plot to %s", out_path)
 
 
 def plot_score_distribution(
@@ -243,7 +255,7 @@ def plot_score_distribution(
         run_dirs = _find_run_dirs(log_dir, cond)
         scores = []
         for rd in run_dirs:
-            _, vals = _load_tb_scalars(rd, "episode/score")
+            _, vals = _load_tb_scalars(rd, "episode/crafter_score")
             if len(vals):
                 scores.extend(vals[-200:].tolist())
         if scores:
@@ -257,13 +269,12 @@ def plot_score_distribution(
             patch.set_facecolor(colour)
             patch.set_alpha(0.7)
 
-    ax.set_ylabel("Episode Score")
+    ax.set_ylabel("Crafter Score")
     ax.set_title("Score Distribution — Final 200 Episodes per Seed")
     ax.grid(True, alpha=0.3, axis="y")
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
+    _save_fig(fig, out_path)
     plt.close(fig)
-    logger.info("Saved score distribution plot to %s", out_path)
 
 
 def plot_per_achievement_heatmap(
@@ -304,21 +315,20 @@ def plot_per_achievement_heatmap(
     ax.set_title("Per-Achievement Success Rate")
     fig.colorbar(im, ax=ax, label="Success Rate")
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
+    _save_fig(fig, out_path)
     plt.close(fig)
-    logger.info("Saved achievement heatmap to %s", out_path)
 
 
 def generate_all_plots(log_dir: str = "tensorboard_logs", out_dir: str = "results") -> None:
-    """Generate the full comparison plot suite.
+    """Generate the full comparison plot suite (PNG + PDF for each figure).
 
     Args:
         log_dir: Root TensorBoard log directory.
-        out_dir: Output directory for PNG files.
+        out_dir: Output directory for plot files.
     """
-    plot_achievement_coverage(log_dir, f"{out_dir}/achievement_coverage.png")
-    plot_training_stability(log_dir, f"{out_dir}/training_stability.png")
-    plot_weight_trajectories(log_dir, out_path=f"{out_dir}/weight_trajectories.png")
-    plot_score_distribution(log_dir, f"{out_dir}/score_distribution.png")
+    plot_achievement_coverage(log_dir,    f"{out_dir}/achievement_coverage.png")
+    plot_training_stability(log_dir,      f"{out_dir}/training_stability.png")
+    plot_weight_trajectories(log_dir,     out_path=f"{out_dir}/weight_trajectories.png")
+    plot_score_distribution(log_dir,      f"{out_dir}/score_distribution.png")
     plot_per_achievement_heatmap(log_dir, f"{out_dir}/achievement_heatmap.png")
-    logger.info("All comparison plots saved to %s/", out_dir)
+    logger.info("All plots saved to %s/ (PNG + PDF)", out_dir)

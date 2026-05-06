@@ -73,7 +73,7 @@ class EpisodeStats:
             Dict with total_reward, steps, achievements_unlocked, score,
             and mean_weights.
         """
-        weights_arr = np.stack(self.persona_weights) if self.persona_weights else np.zeros((1, 3))
+        weights_arr = np.stack(self.persona_weights) if self.persona_weights else np.zeros((1, 4))
         return {
             "total_reward": self.total_reward,
             "steps": self.steps,

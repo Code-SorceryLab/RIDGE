@@ -1,151 +1,182 @@
 """Interactive CLI menu — main entry point for RIDGE."""
 
 import logging
+import os
 import random
 from pathlib import Path
 from typing import Any
 
+from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
 from ridge.utils import load_default_config, setup_logging
 
 logger = logging.getLogger(__name__)
+console = Console()
 
-_MENU = """
-╔══════════════════════════════════════╗
-║          RIDGE — Main Menu           ║
-╠══════════════════════════════════════╣
-║  1. Train RIDGE (adaptive blending)  ║
-║  2. Train Explorer baseline          ║
-║  3. Train Survivor baseline          ║
-║  4. Train Craftsman baseline         ║
-║  5. Train all conditions (sweep)     ║
-║  6. Live Viewer (watch agent play)   ║
-║  7. Launch TensorBoard               ║
-║  8. Run comparison graphs            ║
-║  9. Evaluate checkpoint              ║
-║  0. Exit                             ║
-╚══════════════════════════════════════╝
-"""
+_LOGO = """\
+ ██████╗  ██╗██████╗   ██████╗ ███████╗
+ ██╔══██╗ ██║██╔══██╗ ██╔════╝ ██╔════╝
+ ██████╔╝ ██║██║  ██║ ██║  ███╗█████╗
+ ██╔══██╗ ██║██║  ██║ ██║   ██║██╔══╝
+ ██║  ██║ ██║██████╔╝ ╚██████╔╝███████╗
+ ╚═╝  ╚═╝ ╚═╝╚═════╝   ╚═════╝ ╚══════╝"""
+
+_SUBTITLE = "Reinforcement Intelligence with Dynamic Goal Evolution"
+
+_MENU_ITEMS = [
+    ("1",  "Train RIDGE",          "Adaptive multi-persona blending"),
+    ("2",  "Train Explorer",       "Exploration-focused baseline"),
+    ("3",  "Train Survivor",       "Survival-focused baseline"),
+    ("4",  "Train Craftsman",      "Crafting-focused baseline"),
+    ("5",  "Train Warrior",        "Combat-focused baseline"),
+    ("6",  "Sweep All Conditions", "Run all 5 conditions sequentially"),
+    ("7",  "Live Viewer",          "Watch agent play in real time"),
+    ("8",  "TensorBoard",          "Launch training dashboard"),
+    ("9",  "Comparison Graphs",    "Generate plots from logs"),
+    ("10", "Evaluate Checkpoint",  "Score a saved checkpoint"),
+    ("D",  "Delete All Models",    "Wipe checkpoints & logs — requires DELETE"),
+    ("0",  "Exit",                 "Quit RIDGE"),
+]
 
 _CONFIG_MAP = {
     "1": "configs/ridge_blend.yaml",
     "2": "configs/explorer.yaml",
     "3": "configs/survivor.yaml",
     "4": "configs/craftsman.yaml",
+    "5": "configs/warrior.yaml",
 }
 
 
+def _clear() -> None:
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def _print_header() -> None:
+    logo = Text(_LOGO, style="bold cyan", justify="center")
+    subtitle = Text(_SUBTITLE, style="italic dim white", justify="center")
+    content = Text.assemble(logo, "\n", subtitle)
+    console.print(Panel(content, border_style="cyan", padding=(0, 2)))
+
+
+def _print_menu() -> None:
+    _clear()
+    _print_header()
+
+    table = Table(
+        box=box.ROUNDED,
+        border_style="bright_cyan",
+        show_header=False,
+        padding=(0, 2),
+        expand=False,
+    )
+    table.add_column("key",         style="bold yellow", width=5, justify="center")
+    table.add_column("option",      style="bold white",  min_width=22)
+    table.add_column("description", style="dim white")
+
+    for key, name, desc in _MENU_ITEMS[:-1]:
+        table.add_row(f"[{key}]", name, desc)
+
+    table.add_section()
+    exit_key, exit_name, exit_desc = _MENU_ITEMS[-1]
+    table.add_row(f"[{exit_key}]", exit_name, exit_desc, style="dim red")
+
+    console.print(table)
+    console.print()
+
+
 def _prompt_config(default_path: str) -> dict[str, Any]:
-    """Prompt the user to select a config YAML, falling back to a default.
-
-    Args:
-        default_path: Path to the default config file.
-
-    Returns:
-        Loaded config dict.
-    """
-    user_path = input(f"Config path [{default_path}]: ").strip()
+    user_path = input(f"  Config [{default_path}]: ").strip()
     path = user_path if user_path else default_path
     return load_default_config(path)
 
 
 def _prompt_seed() -> int:
-    """Prompt the user for a seed, defaulting to a random int.
-
-    Returns:
-        Seed integer.
-    """
     default_seed = random.randint(0, 99999)
-    raw = input(f"Seed [{default_seed}]: ").strip()
+    raw = input(f"  Seed [{default_seed}]: ").strip()
     try:
         return int(raw) if raw else default_seed
     except ValueError:
-        print(f"Invalid seed, using {default_seed}")
+        console.print(f"  [yellow]Invalid seed — using {default_seed}[/yellow]")
         return default_seed
 
 
 def _run_training(config_path: str) -> None:
-    """Load config, prompt for seed, and launch training.
-
-    Args:
-        config_path: Path to the condition's YAML config.
-    """
     from ridge.trainer import Trainer
 
     config = _prompt_config(config_path)
     seed = _prompt_seed()
-    print(f"\nStarting training: {config.get('run_name', 'ridge')} | seed={seed}\n")
+    console.print(f"\n  [bold green]Starting:[/] {config.get('run_name', 'ridge')} | seed={seed}\n")
     trainer = Trainer(config, seed=seed)
     trainer.train()
-    print("\nTraining complete.")
+    console.print("\n  [bold green]✓ Training complete.[/]")
     _post_training_prompt(config)
 
 
 def _post_training_prompt(config: dict[str, Any]) -> None:
-    """Offer TensorBoard launch or comparison plots after training.
-
-    Args:
-        config: Completed run config dict.
-    """
-    choice = input("\nLaunch TensorBoard? [y/N]: ").strip().lower()
+    choice = input("\n  Launch TensorBoard? [y/N]: ").strip().lower()
     if choice == "y":
         _do_launch_tensorboard(config.get("log_dir", "tensorboard_logs"))
 
-    choice = input("Generate comparison graphs? [y/N]: ").strip().lower()
+    choice = input("  Generate comparison graphs? [y/N]: ").strip().lower()
     if choice == "y":
         _do_comparison_graphs(config.get("log_dir", "tensorboard_logs"))
 
 
 def _run_sweep() -> None:
-    """Run all 4 conditions sequentially."""
     seed = _prompt_seed()
-    for cond_key, config_path in _CONFIG_MAP.items():
-        print(f"\n{'='*50}")
-        print(f"Starting condition {cond_key}: {config_path}")
-        config = _prompt_config(config_path)
+
+    console.print(f"\n  [bold cyan]Sweep — {len(_CONFIG_MAP)} conditions, seed={seed}[/]")
+    console.print("  [dim]No further input required. Running back-to-back...[/dim]\n")
+
+    total = len(_CONFIG_MAP)
+    for i, (cond_key, config_path) in enumerate(_CONFIG_MAP.items(), start=1):
+        console.print(f"  [bold cyan]{'─' * 48}[/]")
+        console.print(f"  [bold]Condition {i}/{total}:[/] {config_path}")
+        config = load_default_config(config_path)
         from ridge.trainer import Trainer
         trainer = Trainer(config, seed=seed)
         trainer.train()
-    print("\nSweep complete.")
+        console.print(f"  [bold green]✓ Condition {i}/{total} done.[/]\n")
+
+    console.print(f"  [bold green]✓ Sweep complete — all {total} conditions finished.[/]")
 
 
 def _do_launch_tensorboard(log_dir: str = "tensorboard_logs") -> None:
-    """Launch TensorBoard subprocess.
-
-    Args:
-        log_dir: TensorBoard log directory.
-    """
     from viewer.dashboard import launch_tensorboard
     proc = launch_tensorboard(log_dir)
-    print(f"TensorBoard running at http://localhost:6006  (PID {proc.pid})")
-    print("Press Enter to return to menu...")
-    input()
+    console.print(
+        f"  [bold green]TensorBoard running at[/] http://localhost:6006  "
+        f"[dim](PID {proc.pid})[/dim]"
+    )
+    input("  Press Enter to return to menu...")
 
 
 def _do_comparison_graphs(log_dir: str = "tensorboard_logs") -> None:
-    """Generate and save all comparison plots.
-
-    Args:
-        log_dir: TensorBoard log directory.
-    """
     from viewer.dashboard import generate_all_plots
-    out_dir = input("Output directory [results]: ").strip() or "results"
+    out_dir = input("  Output directory [results]: ").strip() or "results"
     generate_all_plots(log_dir, out_dir)
-    print(f"Plots saved to {out_dir}/")
+    console.print(f"  [bold green]✓ Plots saved to[/] {out_dir}/")
 
 
 def _do_live_viewer() -> None:
-    """Launch the live viewer with a checkpoint."""
     from ridge.agent import PPOAgent
     from ridge.game import make_env
     from ridge.utils import get_device
     from viewer.live_viewer import LiveViewer
 
-    config_path = input("Config path [configs/ridge_blend.yaml]: ").strip() or "configs/ridge_blend.yaml"
+    config_path = (
+        input("  Config [configs/ridge_blend.yaml]: ").strip()
+        or "configs/ridge_blend.yaml"
+    )
     config = load_default_config(config_path)
 
-    ckpt_path = input("Checkpoint path: ").strip()
+    ckpt_path = input("  Checkpoint path: ").strip()
     if not ckpt_path or not Path(ckpt_path).exists():
-        print("Checkpoint not found.")
+        console.print("  [red]Checkpoint not found.[/red]")
         return
 
     device = get_device()
@@ -158,23 +189,50 @@ def _do_live_viewer() -> None:
 
 
 def _do_evaluate() -> None:
-    """Evaluate a checkpoint over N episodes."""
-    config_path = input("Config path [configs/ridge_blend.yaml]: ").strip() or "configs/ridge_blend.yaml"
+    config_path = (
+        input("  Config [configs/ridge_blend.yaml]: ").strip()
+        or "configs/ridge_blend.yaml"
+    )
     config = load_default_config(config_path)
-    ckpt_path = input("Checkpoint path: ").strip()
-    n_eps = int(input("Number of episodes [10]: ").strip() or "10")
+    ckpt_path = input("  Checkpoint path: ").strip()
+    n_eps = int(input("  Episodes [10]: ").strip() or "10")
     seed = _prompt_seed()
 
     from scripts.evaluate import run_evaluation
     run_evaluation(config, ckpt_path, n_episodes=n_eps, seed=seed)
 
 
+def _do_delete_models() -> None:
+    """Wipe all checkpoints and TensorBoard logs after hard confirmation."""
+    import shutil
+
+    console.print("\n  [bold red]WARNING — This will permanently delete:[/]")
+    console.print("    • [yellow]checkpoints/[/yellow]  (all saved model weights)")
+    console.print("    • [yellow]tensorboard_logs/[/yellow]  (all training logs)\n")
+    confirm = input("  Type DELETE to confirm, or anything else to cancel: ").strip()
+    if confirm != "DELETE":
+        console.print("  [dim]Cancelled.[/dim]")
+        return
+
+    deleted: list[str] = []
+    for target in ("checkpoints", "tensorboard_logs"):
+        p = Path(target)
+        if p.exists():
+            shutil.rmtree(p)
+            deleted.append(target)
+
+    if deleted:
+        console.print(f"  [bold green]✓ Deleted:[/] {', '.join(deleted)}")
+    else:
+        console.print("  [dim]Nothing to delete — directories did not exist.[/dim]")
+
+
 def run_menu() -> None:
     """Display the RIDGE main menu and dispatch user selections."""
     setup_logging()
     while True:
-        print(_MENU)
-        choice = input("Select option: ").strip()
+        _print_menu()
+        choice = input("  Select option: ").strip()
 
         if choice == "1":
             _run_training("configs/ridge_blend.yaml")
@@ -185,17 +243,23 @@ def run_menu() -> None:
         elif choice == "4":
             _run_training("configs/craftsman.yaml")
         elif choice == "5":
-            _run_sweep()
+            _run_training("configs/warrior.yaml")
         elif choice == "6":
-            _do_live_viewer()
+            _run_sweep()
         elif choice == "7":
-            _do_launch_tensorboard()
+            _do_live_viewer()
         elif choice == "8":
-            _do_comparison_graphs()
+            _do_launch_tensorboard()
         elif choice == "9":
+            _do_comparison_graphs()
+        elif choice == "10":
             _do_evaluate()
+        elif choice.upper() == "D":
+            _do_delete_models()
         elif choice == "0":
-            print("Goodbye.")
+            _clear()
+            console.print("[bold cyan]Goodbye.[/bold cyan]\n")
             break
         else:
-            print("Invalid option. Please try again.")
+            console.print("  [red]Invalid option.[/red]")
+            input("  Press Enter to continue...")
