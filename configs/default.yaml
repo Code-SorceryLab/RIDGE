@@ -29,11 +29,16 @@ health_threshold: 0.3
 hunger_threshold: 0.3
 progress_threshold: 0.5
 weapon_threshold: 0.15   # tool_progress at which warrior drive activates
-blend_sharpness: 0.75      # >1 = harder switches, <1 = softer blending (RQ3 ablation)
+blend_sharpness: 0.75    # >1 = harder switches, <1 = softer blending (RQ3 ablation)
 
 # Viewer
-live_view: false
-render_fps: 15
+live_view: true
+render_fps: 30
+render_every: 4          # render to pygame window every N training steps (1=every step)
+live_dashboard: true     # write training_live/ files for Streamlit monitor
+
+# Training control
+auto_resume: false       # auto-load latest checkpoint if run is interrupted
 
 # Logging
 log_dir: "tensorboard_logs"

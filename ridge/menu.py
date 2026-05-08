@@ -38,6 +38,7 @@ _MENU_ITEMS = [
     ("8",  "TensorBoard",          "Launch training dashboard"),
     ("9",  "Comparison Graphs",    "Generate plots from logs"),
     ("10", "Evaluate Checkpoint",  "Score a saved checkpoint"),
+    ("L",  "Live Dashboard",       "Open Streamlit training monitor in browser"),
     ("D",  "Delete All Models",    "Wipe checkpoints & logs — requires DELETE"),
     ("0",  "Exit",                 "Quit RIDGE"),
 ]
@@ -104,15 +105,61 @@ def _prompt_seed() -> int:
         return default_seed
 
 
+def _print_cpu_info() -> None:
+    """Print CPU/thread info so the user knows what compute is available."""
+    try:
+        import psutil
+        import torch
+        phys = psutil.cpu_count(logical=False)
+        logi = psutil.cpu_count(logical=True)
+        torch_threads = torch.get_num_threads()
+        console.print(
+            f"  [dim]CPU: {phys} physical / {logi} logical cores  |  "
+            f"PyTorch threads: {torch_threads}[/dim]"
+        )
+    except Exception:
+        pass
+
+
+def _start_dashboard_bg() -> None:
+    """Launch Streamlit dashboard in the background — non-blocking, no new window."""
+    import subprocess
+    import sys
+
+    dashboard = Path("viewer") / "streamlit_dashboard.py"
+    if not dashboard.exists():
+        console.print("  [red]streamlit_dashboard.py not found.[/red]")
+        return
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "streamlit", "run", str(dashboard),
+         "--server.headless", "true"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    console.print(
+        f"  [bold green]Live Dashboard →[/] http://localhost:8501  "
+        f"[dim](PID {proc.pid})[/dim]"
+    )
+
+
+def _do_live_dashboard() -> None:
+    """Menu option L — launch dashboard then wait for Enter."""
+    _start_dashboard_bg()
+    console.print("  [dim]Set live_dashboard: true in your config before training.[/dim]")
+    input("  Press Enter to return to menu...")
+
+
 def _run_training(config_path: str) -> None:
     from ridge.trainer import Trainer
 
     config = _prompt_config(config_path)
     seed = _prompt_seed()
+    _print_cpu_info()
+    if config.get("live_dashboard", False):
+        _start_dashboard_bg()
     console.print(f"\n  [bold green]Starting:[/] {config.get('run_name', 'ridge')} | seed={seed}\n")
     trainer = Trainer(config, seed=seed)
     trainer.train()
-    console.print("\n  [bold green]✓ Training complete.[/]")
     _post_training_prompt(config)
 
 
@@ -131,6 +178,10 @@ def _run_sweep() -> None:
 
     console.print(f"\n  [bold cyan]Sweep — {len(_CONFIG_MAP)} conditions, seed={seed}[/]")
     console.print("  [dim]No further input required. Running back-to-back...[/dim]\n")
+
+    first_config = load_default_config(next(iter(_CONFIG_MAP.values())))
+    if first_config.get("live_dashboard", False):
+        _start_dashboard_bg()
 
     total = len(_CONFIG_MAP)
     for i, (cond_key, config_path) in enumerate(_CONFIG_MAP.items(), start=1):
@@ -162,27 +213,55 @@ def _do_comparison_graphs(log_dir: str = "tensorboard_logs") -> None:
     console.print(f"  [bold green]✓ Plots saved to[/] {out_dir}/")
 
 
+def _find_latest_checkpoint() -> str | None:
+    """Return path to the most recently modified .pt file under checkpoints/."""
+    ckpt_dir = Path("checkpoints")
+    if not ckpt_dir.exists():
+        return None
+    candidates = sorted(ckpt_dir.rglob("*.pt"), key=lambda p: p.stat().st_mtime)
+    return str(candidates[-1]) if candidates else None
+
+
 def _do_live_viewer() -> None:
+    import torch
     from ridge.agent import PPOAgent
     from ridge.game import make_env
     from ridge.utils import get_device
     from viewer.live_viewer import LiveViewer
 
-    config_path = (
-        input("  Config [configs/ridge_blend.yaml]: ").strip()
-        or "configs/ridge_blend.yaml"
-    )
-    config = load_default_config(config_path)
+    # Auto-detect latest checkpoint
+    default_ckpt = _find_latest_checkpoint()
+    hint = f" [{default_ckpt}]" if default_ckpt else ""
+    ckpt_path = input(f"  Checkpoint path{hint}: ").strip() or default_ckpt or ""
 
-    ckpt_path = input("  Checkpoint path: ").strip()
     if not ckpt_path or not Path(ckpt_path).exists():
         console.print("  [red]Checkpoint not found.[/red]")
         return
 
     device = get_device()
+
+    # Load config from checkpoint so obs processing matches training exactly
+    raw = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    config = raw.get("config", {})
+    if not config:
+        config_path = (
+            input("  Config [configs/ridge_blend.yaml]: ").strip()
+            or "configs/ridge_blend.yaml"
+        )
+        config = load_default_config(config_path)
+    else:
+        console.print(
+            f"  [dim]Using config embedded in checkpoint "
+            f"(run: {config.get('run_name', '?')})[/dim]"
+        )
+
     env = make_env(config)
     agent = PPOAgent(config, num_actions=env.action_space.n, device=device)
     agent.load_checkpoint(ckpt_path)
+    agent.network.eval()
+
+    console.print(f"  [bold green]Loaded:[/] {ckpt_path}")
+    console.print("  [dim]SPACE = pause  |  ↑↓ = speed  |  close window to exit[/dim]")
 
     viewer = LiveViewer(render_fps=int(config.get("render_fps", 15)))
     viewer.run_replay(env, agent, config, ckpt_path)
@@ -254,6 +333,8 @@ def run_menu() -> None:
             _do_comparison_graphs()
         elif choice == "10":
             _do_evaluate()
+        elif choice.upper() == "L":
+            _do_live_dashboard()
         elif choice.upper() == "D":
             _do_delete_models()
         elif choice == "0":

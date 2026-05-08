@@ -27,8 +27,8 @@ C_YELLOW = (230, 200, 60)
 C_ORANGE = (230, 130, 40)
 C_PURPLE = (160, 80, 200)
 
-PERSONA_COLOURS = [C_GREEN, C_RED, C_BLUE]  # Explorer, Survivor, Craftsman
-PERSONA_NAMES = ["Explorer", "Survivor", "Craftsman"]
+PERSONA_COLOURS = [C_GREEN, C_RED, C_BLUE, C_PURPLE]  # Explorer, Survivor, Craftsman, Warrior
+PERSONA_NAMES = ["Explorer", "Survivor", "Craftsman", "Warrior"]
 
 # Speed options (multiplier on base FPS)
 SPEEDS = [0.5, 1.0, 2.0, 4.0]
@@ -63,7 +63,7 @@ class LiveViewer:
 
         self._frame: np.ndarray | None = None
         self._info: dict[str, Any] = {}
-        self._weights: np.ndarray = np.array([1 / 3, 1 / 3, 1 / 3], dtype=np.float32)
+        self._weights: np.ndarray = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
         self._episode_reward: float = 0.0
         self._step_count: int = 0
         self._achievement_ticker: list[tuple[str, float]] = []  # (name, expire_time)
@@ -77,18 +77,22 @@ class LiveViewer:
         frame: np.ndarray | None,
         info: dict[str, Any],
         weights: np.ndarray,
-    ) -> None:
-        """Push a new frame from the training loop.
+    ) -> bool:
+        """Push a new frame from the training loop (non-blocking).
 
         Args:
             frame: Raw RGB frame (H, W, 3) uint8 or None.
             info: Enriched info dict.
-            weights: Persona weights array (3,).
+            weights: Persona weights array (4,).
+
+        Returns:
+            False if the window was closed (caller should disable live_view).
         """
-        if cls._instance is not None:
-            cls._instance._update_state(frame, info, weights)
-            cls._instance._render()
-            cls._instance._handle_events()
+        if cls._instance is None:
+            return False
+        cls._instance._update_state(frame, info, weights)
+        cls._instance._render()
+        return cls._instance._poll_events()
 
     def _update_state(
         self,
@@ -101,7 +105,7 @@ class LiveViewer:
         Args:
             frame: RGB array or None.
             info: Info dict.
-            weights: Persona weights (3,).
+            weights: Persona weights (4,).
         """
         self._frame = frame
         self._info = info
@@ -117,8 +121,21 @@ class LiveViewer:
                     self._achievement_ticker.append((name, now + 3.0))
         self._achievement_ticker = [(n, t) for n, t in self._achievement_ticker if t > now]
 
+    def _poll_events(self) -> bool:
+        """Non-blocking event poll used during training. Returns False if quit."""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.close()
+                return False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP:
+                    self._speed_idx = min(self._speed_idx + 1, len(SPEEDS) - 1)
+                elif event.key == pygame.K_DOWN:
+                    self._speed_idx = max(self._speed_idx - 1, 0)
+        return True
+
     def _handle_events(self) -> None:
-        """Process pygame events for pause, step, and speed control."""
+        """Process pygame events for pause, step, and speed control (replay mode)."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.close()
@@ -274,7 +291,7 @@ class LiveViewer:
         import numpy as np
 
         obs, info = env.reset()
-        weights = np.array([1 / 3, 1 / 3, 1 / 3], dtype=np.float32)
+        weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
         running = True
 
         while running:
@@ -294,6 +311,6 @@ class LiveViewer:
 
             if terminated or truncated:
                 obs, info = env.reset()
-                weights = np.array([1 / 3, 1 / 3, 1 / 3], dtype=np.float32)
+                weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
 
         self.close()

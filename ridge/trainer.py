@@ -77,15 +77,39 @@ class Trainer:
         self._total_steps: int = int(config.get("total_steps", 1_000_000))
         self._rollout_steps: int = int(config.get("rollout_steps", 256))
         self._checkpoint_every: int = int(config.get("checkpoint_every", 50_000))
-        self._live_view: bool = bool(config.get("live_view", False))
+        self._live_view: bool      = bool(config.get("live_view",      False))
+        self._live_dashboard: bool = bool(config.get("live_dashboard", False))
+        self._auto_resume: bool    = bool(config.get("auto_resume",    True))
+        self._render_every: int    = max(1, int(config.get("render_every", 4)))
+
+        if self._live_view:
+            try:
+                from viewer.live_viewer import LiveViewer
+                LiveViewer(render_fps=int(config.get("render_fps", 15)))
+                _console.print(
+                    "  [bold green]Live viewer open[/] — ↑↓ speed  |  close window to stop"
+                )
+            except Exception as exc:
+                logger.warning("Could not open live viewer: %s", exc)
+                self._live_view = False
 
         self._global_step: int = 0
         self._episode_count: int = 0
         self._best_achievement_count: int = 0
-        
-        # Limit PyTorch CPU threads if specified in config
+        self._episode_persona_totals: dict[str, float] = {
+            "explorer": 0.0, "survivor": 0.0, "craftsman": 0.0, "warrior": 0.0
+        }
+        self._cumulative_persona_totals: dict[str, float] = {
+            "explorer": 0.0, "survivor": 0.0, "craftsman": 0.0, "warrior": 0.0
+        }
+        self._kl_high_count: int     = 0
+        self._entropy_low_count: int = 0
+
+        # PyTorch CPU thread configuration
         if "num_threads" in config:
-            torch.set_num_threads(int(config["num_threads"]))
+            n = int(config["num_threads"])
+            torch.set_num_threads(n)
+            torch.set_num_interop_threads(max(1, n // 2))
 
         self._cumulative_achievements: set[str] = set()
 
@@ -99,8 +123,137 @@ class Trainer:
             self._device,
         )
 
+        if self._auto_resume:
+            self._try_auto_resume()
+
         # Mute game logger during training to prevent it from breaking the progress bar
         logging.getLogger("ridge.game").setLevel(logging.WARNING)
+
+    # -------------------------------------------------------------------------
+
+    def _find_latest_checkpoint(self) -> str | None:
+        """Scan checkpoint dir for the highest-step step_N.pt file."""
+        ckpt_dir = Path(self._ckpt_dir)
+        if not ckpt_dir.exists():
+            return None
+        candidates = []
+        for p in ckpt_dir.glob("step_*.pt"):
+            try:
+                step = int(p.stem.split("_")[1])
+                candidates.append((step, str(p)))
+            except (IndexError, ValueError):
+                pass
+        return max(candidates, key=lambda x: x[0])[1] if candidates else None
+
+    def _try_auto_resume(self) -> None:
+        """Load the latest periodic checkpoint if one exists."""
+        ckpt = self._find_latest_checkpoint()
+        if ckpt is None:
+            return
+        step = int(Path(ckpt).stem.split("_")[1])
+        self._agent.load_checkpoint(ckpt)
+        self._global_step = step
+        _console.print(
+            f"  [bold yellow]↩ Auto-resumed from[/] {ckpt}  "
+            f"[dim](step {step:,})[/dim]"
+        )
+
+    def _write_live_metrics(
+        self, info: dict[str, Any], weights: np.ndarray, fps: float
+    ) -> None:
+        """Write JSON metrics + game frame for the Streamlit dashboard."""
+        import json as _json
+        out_dir = Path("training_live")
+        out_dir.mkdir(exist_ok=True)
+        payload = {
+            "step":             self._global_step,
+            "episode":          self._episode_count,
+            "fps":              round(fps, 1),
+            "score":            round(self._compute_crafter_score(), 5),
+            "achievements":     len(self._cumulative_achievements),
+            "weights":          weights.tolist(),
+            "vitals": {
+                "health": info.get("health", 9),
+                "food":   info.get("food",   9),
+                "drink":  info.get("drink",  9),
+                "energy": info.get("energy", 9),
+            },
+            "persona_rewards":  dict(self._episode_persona_totals),
+            "achievements_list": sorted(self._cumulative_achievements),
+        }
+        tmp = out_dir / "metrics.json.tmp"
+        try:
+            with open(tmp, "w") as f:
+                _json.dump(payload, f)
+            tmp.replace(out_dir / "metrics.json")
+        except OSError:
+            # Windows: Streamlit may hold metrics.json open; skip this update.
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+
+        frame = self._env.render()
+        if frame is not None:
+            try:
+                np.save(str(out_dir / "frame.npy"), frame)
+            except OSError:
+                pass
+
+    def _check_training_health(self, metrics: dict[str, float]) -> None:
+        """Warn if KL divergence is spiking or entropy has collapsed."""
+        kl = metrics.get("kl_divergence", 0.0)
+        ent = metrics.get("entropy", 1.0)
+
+        if kl > 0.05:
+            self._kl_high_count += 1
+            if self._kl_high_count >= 3:
+                _console.print(
+                    f"  [bold red]⚠  KL={kl:.3f} for {self._kl_high_count} updates "
+                    f"— policy may be destabilising[/]"
+                )
+        else:
+            self._kl_high_count = 0
+
+        if ent < 0.01:
+            self._entropy_low_count += 1
+            if self._entropy_low_count >= 3:
+                _console.print(
+                    f"  [bold yellow]⚠  Entropy={ent:.4f} — agent may be stuck "
+                    f"in a local optimum[/]"
+                )
+        else:
+            self._entropy_low_count = 0
+
+    def _print_training_summary(self, wall_seconds: float) -> None:
+        """Print a rich end-of-training summary panel."""
+        from rich.panel import Panel
+        from rich.table import Table
+        from rich import box as rbox
+
+        h = int(wall_seconds // 3600)
+        m = int((wall_seconds % 3600) // 60)
+        s = int(wall_seconds % 60)
+        elapsed_str = f"{h}h {m}m {s}s"
+
+        t = Table(box=rbox.SIMPLE, show_header=False, padding=(0, 2))
+        t.add_column("key",   style="dim white",   width=24)
+        t.add_column("value", style="bold white")
+
+        t.add_row("Steps completed",    f"{self._global_step:,} / {self._total_steps:,}")
+        t.add_row("Episodes",           f"{self._episode_count:,}")
+        t.add_row("Wall time",          elapsed_str)
+        t.add_row("Crafter score",      f"{self._compute_crafter_score():.4f}")
+        t.add_row("Achievements seen",  f"{len(self._cumulative_achievements)} / 22")
+        t.add_row("Best episode (ach)", f"{self._best_achievement_count}")
+        t.add_row("Checkpoints saved",  self._ckpt_dir)
+        t.add_section()
+        for persona in ("explorer", "survivor", "craftsman", "warrior"):
+            r = self._cumulative_persona_totals.get(persona, 0.0)
+            t.add_row(f"  {persona.capitalize()} reward (total)", f"{r:,.1f}")
+
+        _console.print(Panel(t, title="[bold cyan]Training Complete[/]", border_style="cyan"))
 
     # -------------------------------------------------------------------------
 
@@ -116,6 +269,8 @@ class Trainer:
 
     def train(self) -> None:
         """Run the full training loop until total_steps is reached."""
+        train_start = time.time()
+
         obs, info = self._env.reset()
         current_weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
         episode_start_step = 0
@@ -152,6 +307,7 @@ class Trainer:
         task_id = progress.add_task(
             "RIDGE",
             total=self._total_steps,
+            completed=self._global_step,   # non-zero when auto-resumed
             fps="0",
             ep="0",
             score="0.000",
@@ -173,6 +329,9 @@ class Trainer:
                         info, state_vec, self._config, episode_unlocked
                     )
                     current_weights = weights
+                    for k, v in per_persona.items():
+                        self._episode_persona_totals[k]     += v
+                        self._cumulative_persona_totals[k]  += v
 
                     action, log_prob, value, per_head_val = self._agent.select_action(obs, weights)
 
@@ -207,8 +366,12 @@ class Trainer:
 
                     if done:
                         stats = self._env.get_episode_stats().to_dict()
-                        self._log_episode(stats, per_persona, weights)
+                        self._log_episode(stats, self._episode_persona_totals, weights)
                         self._episode_count += 1
+                        self._episode_persona_totals = {
+                            "explorer": 0.0, "survivor": 0.0,
+                            "craftsman": 0.0, "warrior": 0.0,
+                        }
 
                         obs, info = self._env.reset()
                         current_weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
@@ -251,9 +414,16 @@ class Trainer:
                 fps_step_count = 0
 
                 self._log_update(update_metrics, fps, update_time)
+                self._check_training_health(update_metrics)
 
                 if self._global_step % self._checkpoint_every < self._rollout_steps:
                     self._save_periodic_checkpoint()
+
+                if self._live_dashboard:
+                    try:
+                        self._write_live_metrics(info, current_weights, fps)
+                    except Exception:
+                        pass
 
                 steps_advanced = min(
                     self._rollout_steps,
@@ -275,27 +445,31 @@ class Trainer:
             self._writer.close()
             self._env.close()
             logger.info("Training complete — %d steps, %d episodes", self._global_step, self._episode_count)
+            self._print_training_summary(time.time() - train_start)
 
     # -------------------------------------------------------------------------
     # Logging helpers
     # -------------------------------------------------------------------------
 
     def _compute_crafter_score(self) -> float:
-        """Official Crafter score = mean of sqrt(per-achievement unlock rates).
+        """Official Crafter score: geometric mean of per-achievement success rates.
 
-        score = (1/22) * Σ sqrt(unlock_rate_i)
+        Matches the formula in Hafner 2021 (ICLR 2022):
+            score = exp( (1/22) * Σ log(max(rate_i, 1e-3)) )
 
+        A floor of 1e-3 prevents log(0) while keeping unseen achievements
+        near-zero rather than exactly zero (consistent with the paper's table).
         Computed over the last 100 episodes (_achievement_window).
-        Comparable to published Crafter benchmark results.
         """
+        
         if not self._achievement_window:
             return 0.0
         n = len(self._achievement_window)
-        score = 0.0
+        log_sum = 0.0
         for ach in ALL_ACHIEVEMENTS:
             rate = sum(1 for ep in self._achievement_window if ach in ep) / n
-            score += np.sqrt(rate)
-        return score / len(ALL_ACHIEVEMENTS)
+            log_sum += np.log(max(rate, 1e-3))
+        return float(np.exp(log_sum / len(ALL_ACHIEVEMENTS)))
 
     def _log_episode(
         self,
@@ -313,11 +487,11 @@ class Trainer:
         s = self._global_step
         w = self._writer
 
-        w.add_scalar("reward/total", stats["total_reward"], s)
-        w.add_scalar("reward/explorer", per_persona["explorer"], s)
-        w.add_scalar("reward/survivor", per_persona["survivor"], s)
-        w.add_scalar("reward/craftsman", per_persona["craftsman"], s)
-        w.add_scalar("reward/warrior",   per_persona["warrior"],   s)
+        w.add_scalar("reward/episode_total",    stats["total_reward"],    s)
+        w.add_scalar("reward/ep_explorer",  per_persona["explorer"],  s)
+        w.add_scalar("reward/ep_survivor",  per_persona["survivor"],  s)
+        w.add_scalar("reward/ep_craftsman", per_persona["craftsman"], s)
+        w.add_scalar("reward/ep_warrior",   per_persona["warrior"],   s)
 
         mean_w = stats["mean_weights"]
         w.add_scalar("weights/explorer",  mean_w[0], s)
@@ -378,15 +552,13 @@ class Trainer:
     def _push_live_frame(
         self, obs: np.ndarray, info: dict[str, Any], weights: np.ndarray
     ) -> None:
-        """Send frame and debug info to the live viewer if active.
-
-        Args:
-            obs: Current processed observation.
-            info: Current enriched info dict.
-            weights: Current persona weights.
-        """
+        """Send frame and debug info to the live viewer if active."""
+        if self._global_step % self._render_every != 0:
+            return
         try:
             from viewer.live_viewer import LiveViewer
-            LiveViewer.push_frame(self._env.render(), info, weights)
+            still_open = LiveViewer.push_frame(self._env.render(), info, weights)
+            if not still_open:
+                self._live_view = False
         except Exception:
             pass

@@ -55,8 +55,8 @@ _SURVIVOR_BONUSES = {
     "collect_drink":   1.0,
     "eat_cow":         1.5,
     "eat_plant":       1.0,
-    "wake_up":         1.5,
-    "collect_wood":    0.3,   # need wood for a bed/shelter
+    "wake_up":         3.0,   # raised: sleeping has high opportunity cost vs other personas
+    "collect_wood":    0.3,
     "place_stone":     0.3,
 }
 
@@ -117,14 +117,15 @@ def survivor_reward(info: dict[str, Any], unlocked: set[str]) -> float:
     drink  = info.get("drink",  9) / 9.0
     energy = info.get("energy", 9) / 9.0
 
-    reward += 0.10 * health
-    reward += 0.10 * food
-    reward += 0.10 * drink
-    reward += 0.05 * energy
+    reward += 0.03 * health
+    reward += 0.03 * food
+    reward += 0.03 * drink
+    reward += 0.03 * energy
 
     if health < 0.2: reward -= 0.5
     if food   < 0.2: reward -= 0.3
     if drink  < 0.2: reward -= 0.3
+    if energy < 0.2: reward -= 0.3  # penalty mirrors food/drink — sleep deprivation costs
 
     for name, bonus in _SURVIVOR_BONUSES.items():
         if info.get("achievements", {}).get(name, 0) and name not in unlocked:
@@ -160,7 +161,7 @@ def warrior_reward(info: dict[str, Any], unlocked: set[str]) -> float:
 
     # Light health shaping — warriors expect damage, don't over-penalise
     health = info.get("health", 9) / 9.0
-    reward += 0.05 * health
+    reward += 0.02 * health
 
     for name, bonus in _WARRIOR_BONUSES.items():
         if info.get("achievements", {}).get(name, 0) and name not in unlocked:
@@ -213,6 +214,7 @@ def sigma(state_vector: np.ndarray, config: dict[str, Any]) -> np.ndarray:
     health        = float(state_vector[_IDX_HEALTH])
     food          = float(state_vector[_IDX_FOOD])
     drink         = float(state_vector[_IDX_DRINK])
+    energy        = float(state_vector[_IDX_ENERGY])
     progress      = float(state_vector[_IDX_PROGRESS])
     tool_progress = float(state_vector[_IDX_TOOLS])
 
@@ -222,8 +224,9 @@ def sigma(state_vector: np.ndarray, config: dict[str, Any]) -> np.ndarray:
     # Explorer: strong early, fades as agent specialises
     w_e = _sigmoid(4.0 * sharpness * (0.35 - progress))
 
-    # Survivor: driven by live need signal — varies every step
-    need  = 1.0 - min(health, food, drink)
+    # Survivor: driven by live need signal — energy included so agent switches
+    # to survivor when tired and is motivated to sleep
+    need  = 1.0 - min(health, food, drink, energy)
     w_s   = _sigmoid(8.0 * sharpness * (need - h_thresh))
 
     # Craftsman: rises through all tool tiers, never collapses
