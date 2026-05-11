@@ -358,6 +358,42 @@ def plot_per_achievement_heatmap(
     plt.close(fig)
 
 
+# Sharpness ablation — colour scale: cool (soft) → warm (sharp)
+SHARPNESS_CONDITIONS = {
+    "ridge_adaptive": ("0.75 (default)", "#4CAF50"),
+    "ridge_bs050":    ("0.5  (soft)",    "#80DEEA"),
+    "ridge_bs100":    ("1.0",            "#FFF176"),
+    "ridge_bs200":    ("2.0  (best)",    "#FF9800"),
+    "ridge_bs400":    ("4.0  (hard)",    "#F44336"),
+}
+
+
+def plot_blend_sharpness(
+    log_dir: str,
+    out_path: str = "results/blend_sharpness.png",
+    tag: str = "episode/crafter_score",
+) -> None:
+    """RQ3 — Crafter score vs blend_sharpness value."""
+    fig, ax = plt.subplots(figsize=(11, 6))
+
+    for idx, (cond, (label, colour)) in enumerate(SHARPNESS_CONDITIONS.items()):
+        x, mean_y, std_y, n = _mean_over_seeds(log_dir, cond, tag)
+        if not len(x):
+            continue
+        _add_condition_line(ax, x, mean_y, std_y, n, colour, f"α={label}", idx)
+
+    _format_steps_axis(ax)
+    ax.set_xlabel("Training Steps")
+    ax.set_ylabel("Crafter Score (geometric mean success rate)")
+    ax.set_title("RIDGE — Blend Sharpness Ablation (RQ3)")
+    ax.legend(loc="upper left")
+    ax.grid(True, alpha=0.25, linestyle="--")
+    ax.set_ylim(bottom=0)
+    fig.tight_layout()
+    _save_fig(fig, out_path)
+    plt.close(fig)
+
+
 def generate_all_plots(log_dir: str = "tensorboard_logs", out_dir: str = "results") -> None:
     from rich.console import Console as _Console
     from rich.table import Table as _Table
@@ -395,4 +431,5 @@ def generate_all_plots(log_dir: str = "tensorboard_logs", out_dir: str = "result
     plot_weight_trajectories(log_dir,     out_path=f"{out_dir}/weight_trajectories.png")
     plot_score_distribution(log_dir,      f"{out_dir}/score_distribution.png")
     plot_per_achievement_heatmap(log_dir, f"{out_dir}/achievement_heatmap.png")
+    plot_blend_sharpness(log_dir,         f"{out_dir}/blend_sharpness.png")
     logger.info("All plots saved to %s/ (PNG + PDF)", out_dir)

@@ -1,0 +1,6 @@
+# RIDGE blend_sharpness ablation — very sharp / near-hard switches (RQ3)
+# Inherits all defaults from default.yaml
+
+blending_mode: "ridge"
+blend_sharpness: 4.0
+run_name: "ridge_bs400"

@@ -38,6 +38,7 @@ _MENU_ITEMS = [
     ("8",  "TensorBoard",          "Launch training dashboard"),
     ("9",  "Comparison Graphs",    "Generate plots from logs"),
     ("10", "Evaluate Checkpoint",  "Score a saved checkpoint"),
+    ("11", "Sharpness Sweep",      "RQ3 ablation — blend_sharpness 0.5/1.0/2.0/4.0"),
     ("L",  "Live Dashboard",       "Open Streamlit training monitor in browser"),
     ("D",  "Delete All Models",    "Wipe checkpoints & logs — requires DELETE"),
     ("0",  "Exit",                 "Quit RIDGE"),
@@ -49,6 +50,13 @@ _CONFIG_MAP = {
     "3": "configs/survivor.yaml",
     "4": "configs/craftsman.yaml",
     "5": "configs/warrior.yaml",
+}
+
+_SHARPNESS_MAP = {
+    "0.5": "configs/ridge_sharp050.yaml",
+    "1.0": "configs/ridge_sharp100.yaml",
+    "2.0": "configs/ridge_sharp200.yaml",
+    "4.0": "configs/ridge_sharp400.yaml",
 }
 
 
@@ -306,6 +314,30 @@ def _do_delete_models() -> None:
         console.print("  [dim]Nothing to delete — directories did not exist.[/dim]")
 
 
+def _run_sharpness_sweep() -> None:
+    """Menu option 11 — RQ3 blend_sharpness ablation sweep."""
+    seed = _prompt_seed()
+
+    console.print(f"\n  [bold cyan]Sharpness Sweep — {len(_SHARPNESS_MAP)} conditions, seed={seed}[/]")
+    console.print("  [dim]blend_sharpness: 0.5 → 1.0 → 2.0 → 4.0. No further input required.[/dim]\n")
+
+    first_config = load_default_config(next(iter(_SHARPNESS_MAP.values())))
+    if first_config.get("live_dashboard", False):
+        _start_dashboard_bg()
+
+    total = len(_SHARPNESS_MAP)
+    for i, (sharpness, config_path) in enumerate(_SHARPNESS_MAP.items(), start=1):
+        console.print(f"  [bold cyan]{'─' * 48}[/]")
+        console.print(f"  [bold]Sharpness {i}/{total}:[/] blend_sharpness={sharpness}  ({config_path})")
+        config = load_default_config(config_path)
+        from ridge.trainer import Trainer
+        trainer = Trainer(config, seed=seed)
+        trainer.train()
+        console.print(f"  [bold green]✓ Sharpness {i}/{total} done.[/]\n")
+
+    console.print(f"  [bold green]✓ Sharpness sweep complete — all {total} conditions finished.[/]")
+
+
 def run_menu() -> None:
     """Display the RIDGE main menu and dispatch user selections."""
     setup_logging()
@@ -333,6 +365,8 @@ def run_menu() -> None:
             _do_comparison_graphs()
         elif choice == "10":
             _do_evaluate()
+        elif choice == "11":
+            _run_sharpness_sweep()
         elif choice.upper() == "L":
             _do_live_dashboard()
         elif choice.upper() == "D":

@@ -134,11 +134,16 @@ class LiveViewer:
                     self._speed_idx = max(self._speed_idx - 1, 0)
         return True
 
-    def _handle_events(self) -> None:
-        """Process pygame events for pause, step, and speed control (replay mode)."""
+    def _handle_events(self) -> bool:
+        """Process pygame events for pause, step, and speed control (replay mode).
+
+        Returns:
+            False if the window was closed, True otherwise.
+        """
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.close()
+                return False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
                     self._paused = not self._paused
@@ -153,12 +158,11 @@ class LiveViewer:
         self._clock.tick(fps)
 
         if self._paused and not self._step_once:
-            # Block until unpaused
             while self._paused and not self._step_once:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.close()
-                        return
+                        return False
                     elif event.type == pygame.KEYDOWN:
                         if event.key == pygame.K_SPACE:
                             self._paused = False
@@ -166,6 +170,7 @@ class LiveViewer:
                             self._step_once = True
                 self._clock.tick(30)
         self._step_once = False
+        return True
 
     def _render(self) -> None:
         """Draw the full window: game frame + debug panel."""
@@ -290,27 +295,29 @@ class LiveViewer:
         from ridge.rewards import compute_blended_reward
         import numpy as np
 
+        def _fresh_unlocked() -> dict:
+            return {"explorer": set(), "survivor": set(), "craftsman": set(), "warrior": set()}
+
         obs, info = env.reset()
         weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
-        running = True
+        episode_unlocked = _fresh_unlocked()
 
-        while running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-
+        while True:
             state_vec = env.extract_state_vector(info)
-            _, weights, _ = compute_blended_reward(info, state_vec, config)
+            _, weights, _ = compute_blended_reward(info, state_vec, config, episode_unlocked)
             action, _, _, _ = agent.select_action(obs, weights)
             obs, _, terminated, truncated, info = env.step(action)
 
             frame = env.render()
             self._update_state(frame, info, weights)
             self._render()
-            self._handle_events()
+            if not self._handle_events():
+                break
 
             if terminated or truncated:
                 obs, info = env.reset()
                 weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
+                episode_unlocked = _fresh_unlocked()
 
-        self.close()
+        if LiveViewer._instance is not None:
+            self.close()

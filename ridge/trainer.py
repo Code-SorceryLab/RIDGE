@@ -85,10 +85,11 @@ class Trainer:
         if self._live_view:
             try:
                 from viewer.live_viewer import LiveViewer
-                LiveViewer(render_fps=int(config.get("render_fps", 15)))
-                _console.print(
-                    "  [bold green]Live viewer open[/] — ↑↓ speed  |  close window to stop"
-                )
+                if LiveViewer._instance is None:
+                    LiveViewer(render_fps=int(config.get("render_fps", 15)))
+                    _console.print(
+                        "  [bold green]Live viewer open[/] — ↑↓ speed  |  close window to stop"
+                    )
             except Exception as exc:
                 logger.warning("Could not open live viewer: %s", exc)
                 self._live_view = False
@@ -109,7 +110,10 @@ class Trainer:
         if "num_threads" in config:
             n = int(config["num_threads"])
             torch.set_num_threads(n)
-            torch.set_num_interop_threads(max(1, n // 2))
+            try:
+                torch.set_num_interop_threads(max(1, n // 2))
+            except RuntimeError:
+                pass  # can only be set once per process; subsequent Trainers skip it
 
         self._cumulative_achievements: set[str] = set()
 

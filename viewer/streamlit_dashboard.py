@@ -174,16 +174,106 @@ if len(st.session_state.score_history) > 1:
 
 st.divider()
 
-# ── Achievements unlocked ─────────────────────────────────────────────────────
-ach_list = metrics.get("achievements_list", [])
-st.subheader(f"Achievements Unlocked ({len(ach_list)} / 22)")
+# ── Achievement Map ───────────────────────────────────────────────────────────
+#
+# Organised by Crafter tech-tree tier.  All 22 achievements are reachable via
+# the 17-action space; each has at least one persona reward bonus in rewards.py.
+#
+# Tier 1 — no prerequisites (basic interaction / exploration)
+# Tier 2 — requires wood / crafting table
+# Tier 3 — requires stone tools / furnace chain
+# Tier 4 — requires iron tools (deep tech tree)
+# ─────────────────────────────────────────────────────────────────────────────
 
-if ach_list:
-    cols = st.columns(4)
-    for i, ach in enumerate(sorted(ach_list)):
-        cols[i % 4].success(ach.replace("_", " ").title())
+_TECH_TREE: list[tuple[str, int, str]] = [
+    # (achievement_key, tier, prereq_hint)
+    ("collect_wood",       1, "chop tree"),
+    ("collect_sapling",    1, "pick up sapling"),
+    ("collect_drink",      1, "drink from water"),
+    ("eat_plant",          1, "eat a plant"),
+    ("eat_cow",            1, "kill & eat cow"),
+    ("defeat_zombie",      1, "attack zombie"),
+    ("wake_up",            1, "sleep until full energy"),
+    ("place_stone",        2, "have stone → do"),
+    ("place_table",        2, "2 wood → place"),
+    ("make_wood_pickaxe",  2, "table + wood"),
+    ("make_wood_sword",    2, "table + wood"),
+    ("collect_stone",      2, "wood pickaxe"),
+    ("place_plant",        2, "sapling + dirt"),
+    ("collect_coal",       3, "stone pickaxe"),
+    ("make_stone_pickaxe", 3, "table + stone"),
+    ("make_stone_sword",   3, "table + stone"),
+    ("place_furnace",      3, "8 stone + table"),
+    ("defeat_skeleton",    3, "attack skeleton"),
+    ("collect_iron",       4, "stone pickaxe"),
+    ("make_iron_pickaxe",  4, "furnace + iron"),
+    ("make_iron_sword",    4, "furnace + iron"),
+    ("collect_diamond",    4, "iron pickaxe"),
+]
+
+_TIER_META = {
+    1: ("Basic",  "#4CAF50"),
+    2: ("Early",  "#2196F3"),
+    3: ("Mid",    "#FF9800"),
+    4: ("Late",   "#F44336"),
+}
+
+ach_set = set(metrics.get("achievements_list", []))
+n_unlocked = len(ach_set)
+st.subheader(f"Achievement Map  —  {n_unlocked} / 22 unlocked")
+
+for tier in (1, 2, 3, 4):
+    tier_items = [(k, hint) for k, t, hint in _TECH_TREE if t == tier]
+    label, color = _TIER_META[tier]
+    done = sum(1 for k, _ in tier_items if k in ach_set)
+    total = len(tier_items)
+
+    st.markdown(
+        f"<span style='color:{color};font-weight:700;font-size:0.95em'>"
+        f"{label} Tier</span>"
+        f"<span style='color:#888;font-size:0.85em'> — {done}/{total}</span>",
+        unsafe_allow_html=True,
+    )
+
+    n_cols = min(total, 4)
+    cols = st.columns(n_cols)
+    for i, (key, hint) in enumerate(tier_items):
+        name = key.replace("_", " ").title()
+        col = cols[i % n_cols]
+        if key in ach_set:
+            col.markdown(
+                f"<div style='background:#1b3a1f;border:1px solid {color};"
+                f"border-radius:6px;padding:4px 8px;margin-bottom:4px;"
+                f"font-size:0.82em;color:{color}'>✅ {name}</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            col.markdown(
+                f"<div style='background:#1a1a2e;border:1px solid #333;"
+                f"border-radius:6px;padding:4px 8px;margin-bottom:4px;"
+                f"font-size:0.82em;color:#666'>⬜ {name}"
+                f"<br><span style='color:#444;font-size:0.8em'>{hint}</span></div>",
+                unsafe_allow_html=True,
+            )
+
+# ── What's next ───────────────────────────────────────────────────────────────
+remaining = [k for k, t, _ in _TECH_TREE if k not in ach_set]
+if remaining:
+    # Find the lowest tier not yet fully cleared
+    next_tier = min(t for k, t, _ in _TECH_TREE if k not in ach_set)
+    next_up = [k.replace("_", " ").title() for k, t, _ in _TECH_TREE
+               if t == next_tier and k not in ach_set]
+    _, next_color = _TIER_META[next_tier]
+    st.markdown(
+        f"<div style='margin-top:8px;padding:8px 12px;background:#111;"
+        f"border-left:3px solid {next_color};border-radius:4px;"
+        f"font-size:0.85em;color:#aaa'>"
+        f"<b style='color:{next_color}'>Next up:</b> "
+        f"{', '.join(next_up)}</div>",
+        unsafe_allow_html=True,
+    )
 else:
-    st.caption("None yet — keep training!")
+    st.success("🏆 All 22 achievements unlocked!")
 
 # ── Auto-refresh ──────────────────────────────────────────────────────────────
 time.sleep(REFRESH_S)
