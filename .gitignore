@@ -16,6 +16,15 @@ venv/
 env/
 
 # Training artifacts
+runs/
+logs/
+tensorboard_logs/
+checkpoints/
+*.pt
+*.pth
+*.onnx
+saved_models/
+results/
 
 # OS
 .DS_Store
