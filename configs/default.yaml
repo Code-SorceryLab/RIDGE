@@ -29,7 +29,7 @@ health_threshold: 0.3
 hunger_threshold: 0.3
 progress_threshold: 0.5
 weapon_threshold: 0.15   # tool_progress at which warrior drive activates
-blend_sharpness: 1.75    # >1 = harder switches, <1 = softer blending (RQ3 ablation)
+blend_sharpness: 1.0     # >1 = harder switches, <1 = softer blending (RQ3 ablation)
 
 # Viewer
 live_view: false       # show live rendering during training (slows down training)

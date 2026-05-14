@@ -87,13 +87,38 @@ def _find_run_dirs(log_dir: str, condition: str) -> list[str]:
     return sorted(str(p) for p in base.iterdir() if p.is_dir() and p.name.startswith(condition))
 
 
+def _smooth(y: np.ndarray, window: int) -> np.ndarray:
+    """Centered moving average with edge-preserving reflect padding."""
+    if window <= 1 or len(y) < 2:
+        return y
+    w = min(window, len(y))
+    pad = w // 2
+    padded = np.pad(y, pad, mode="reflect")
+    kernel = np.ones(w, dtype=np.float64) / w
+    smoothed = np.convolve(padded, kernel, mode="valid")
+    # Trim to original length (convolve "valid" mode reduces length)
+    if len(smoothed) > len(y):
+        trim = (len(smoothed) - len(y)) // 2
+        smoothed = smoothed[trim:trim + len(y)]
+    elif len(smoothed) < len(y):
+        smoothed = np.pad(smoothed, (0, len(y) - len(smoothed)), mode="edge")
+    return smoothed
+
+
 def _mean_over_seeds(
     log_dir: str,
     condition: str,
     tag: str,
     n_bins: int = 200,
+    smooth_window: int = 1,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
-    """Compute mean ± std across seeds; returns (x, mean, std, n_seeds)."""
+    """Compute mean ± std across seeds; returns (x, mean, std, n_seeds).
+
+    Args:
+        smooth_window: Centered moving-average window over the n_bins x-axis.
+                       1 = no smoothing (default — preserves cumulative-step plots).
+                       10-20 = good for noisy per-episode metrics.
+    """
     run_dirs = _find_run_dirs(log_dir, condition)
     if not run_dirs:
         return np.array([]), np.array([]), np.array([]), 0
@@ -111,6 +136,8 @@ def _mean_over_seeds(
     x_max    = min(s[-1] for s in all_steps)
     x_common = np.linspace(0, x_max, n_bins)
     interped = [np.interp(x_common, s, v) for s, v in zip(all_steps, all_vals)]
+    if smooth_window > 1:
+        interped = [_smooth(arr, smooth_window) for arr in interped]
     arr      = np.stack(interped)
     return x_common, arr.mean(axis=0), arr.std(axis=0), len(arr)
 
@@ -188,7 +215,9 @@ def plot_crafter_score(
     fig, ax = plt.subplots(figsize=(11, 6))
 
     for idx, (cond, colour) in enumerate(CONDITION_COLOURS.items()):
-        x, mean_y, std_y, n = _mean_over_seeds(log_dir, cond, "episode/crafter_score")
+        x, mean_y, std_y, n = _mean_over_seeds(
+            log_dir, cond, "episode/crafter_score", smooth_window=15,
+        )
         if not len(x):
             continue
         _add_condition_line(ax, x, mean_y, std_y, n, colour,
@@ -213,7 +242,9 @@ def plot_training_stability(
     fig, ax = plt.subplots(figsize=(11, 6))
 
     for idx, (cond, colour) in enumerate(CONDITION_COLOURS.items()):
-        x, mean_y, std_y, n = _mean_over_seeds(log_dir, cond, "agent/value_loss")
+        x, mean_y, std_y, n = _mean_over_seeds(
+            log_dir, cond, "agent/value_loss", smooth_window=15,
+        )
         if not len(x):
             continue
         _add_condition_line(ax, x, mean_y, std_y, n, colour,
@@ -221,10 +252,11 @@ def plot_training_stability(
 
     _format_steps_axis(ax)
     ax.set_xlabel("Training Steps")
-    ax.set_ylabel("Value Loss")
+    ax.set_ylabel("Value Loss (log scale)")
+    ax.set_yscale("log")
     ax.set_title("Training Stability — Value Loss over Time")
     ax.legend(loc="upper right")
-    ax.grid(True, alpha=0.25, linestyle="--")
+    ax.grid(True, alpha=0.25, linestyle="--", which="both")
     fig.tight_layout()
     _save_fig(fig, out_path)
     plt.close(fig)
@@ -244,7 +276,9 @@ def plot_weight_trajectories(
         ("weights/warrior",   "#9C27B0", "Warrior"),
     ]
     for idx, (tag, colour, label) in enumerate(tag_styles):
-        x, mean_y, std_y, n = _mean_over_seeds(log_dir, run_name, tag)
+        x, mean_y, std_y, n = _mean_over_seeds(
+            log_dir, run_name, tag, smooth_window=15,
+        )
         if not len(x):
             continue
         _add_condition_line(ax, x, mean_y, std_y, n, colour, label, idx)
@@ -360,11 +394,11 @@ def plot_per_achievement_heatmap(
 
 # Sharpness ablation — colour scale: cool (soft) → warm (sharp)
 SHARPNESS_CONDITIONS = {
-    "ridge_adaptive": ("0.75 (default)", "#4CAF50"),
-    "ridge_bs050":    ("0.5  (soft)",    "#80DEEA"),
-    "ridge_bs100":    ("1.0",            "#FFF176"),
-    "ridge_bs200":    ("2.0  (best)",    "#FF9800"),
-    "ridge_bs400":    ("4.0  (hard)",    "#F44336"),
+    "ridge_bs000":    ("0.0  (uniform)", "#80DEEA"),
+    "ridge_bs050":    ("0.5  (soft)",    "#4DD0E1"),
+    "ridge_bs100":    ("1.0  (default)", "#4CAF50"),
+    "ridge_bs150":    ("1.5",            "#FBC02D"),
+    "ridge_bs200":    ("2.0  (sharp)",   "#E64A19"),
 }
 
 
@@ -377,7 +411,9 @@ def plot_blend_sharpness(
     fig, ax = plt.subplots(figsize=(11, 6))
 
     for idx, (cond, (label, colour)) in enumerate(SHARPNESS_CONDITIONS.items()):
-        x, mean_y, std_y, n = _mean_over_seeds(log_dir, cond, tag)
+        x, mean_y, std_y, n = _mean_over_seeds(
+            log_dir, cond, tag, smooth_window=15,
+        )
         if not len(x):
             continue
         _add_condition_line(ax, x, mean_y, std_y, n, colour, f"α={label}", idx)
@@ -392,6 +428,111 @@ def plot_blend_sharpness(
     fig.tight_layout()
     _save_fig(fig, out_path)
     plt.close(fig)
+
+
+# ── Spider/radar export (matplotlib polar) ────────────────────────────────────
+
+def _matplotlib_spider_draw(
+    ax: plt.Axes,
+    title: str,
+    axis_labels: list[str],
+    series: list[tuple[str, list[float], str]],
+) -> None:
+    """Draw a single polar/radar plot onto the given polar Axes (no legend)."""
+    n = len(axis_labels)
+    angles = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False).tolist()
+    angles_closed = angles + angles[:1]
+
+    for label, values, colour in series:
+        vals = list(values) + [values[0]]
+        ax.plot(angles_closed, vals, "o-", color=colour, linewidth=2.0,
+                 markersize=4, label=label, zorder=3)
+        ax.fill(angles_closed, vals, color=colour, alpha=0.15, zorder=2)
+
+    ax.set_theta_offset(np.pi / 2.0)
+    ax.set_theta_direction(-1)
+    ax.set_xticks(angles)
+    tick_fs = 7 if n > 8 else 10
+    ax.set_xticklabels(axis_labels, fontsize=tick_fs)
+    ax.set_ylim(0.0, 1.0)
+    ax.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
+    ax.set_yticklabels([".2", ".4", ".6", ".8", "1.0"], fontsize=8, color="#666")
+    ax.grid(True, alpha=0.4, linestyle="--")
+    ax.spines["polar"].set_color("#888")
+    ax.set_title(title, fontsize=12, fontweight="bold", pad=18)
+
+
+def generate_spider_plots(
+    log_dir: str = "tensorboard_logs",
+    sharpness_condition: str | None = "ridge_bs100",
+    out_dir: str = "results",
+) -> list[str]:
+    """Generate a single 2x2 composite spider figure with all 4 views (PNG + PDF)."""
+    from viewer.spider_data import (
+        FIXED_BASELINE_KEYS, SPIDER_CONDITIONS, VIEW_META,
+        available_conditions, compute_view_data, load_condition,
+    )
+
+    present = available_conditions(log_dir)
+    if not present:
+        raise RuntimeError(f"No condition logs found under '{log_dir}/'. Train at least one run first.")
+
+    present_fixed = [c for c in FIXED_BASELINE_KEYS if c in present]
+    shown: list[str] = []
+    if sharpness_condition and sharpness_condition in present:
+        shown.append(sharpness_condition)
+    elif sharpness_condition:
+        logger.warning("sharpness_condition '%s' has no data — omitting from export.",
+                        sharpness_condition)
+    shown.extend(present_fixed)
+
+    data_by_cond: dict[str, dict] = {}
+    for c in shown:
+        d = load_condition(log_dir, c)
+        if d is not None:
+            data_by_cond[c] = d
+
+    fig = plt.figure(figsize=(18, 17))
+    gs = fig.add_gridspec(
+        2, 2, hspace=0.48, wspace=0.32,
+        top=0.89, bottom=0.10, left=0.06, right=0.94,
+    )
+
+    handles_seen: list = []
+    labels_seen: list[str] = []
+    for i, (view_key, view_name, _) in enumerate(VIEW_META):
+        ax = fig.add_subplot(gs[i // 2, i % 2], projection="polar")
+        axis_labels, series = compute_view_data(view_key, shown, data_by_cond)
+        if not series:
+            ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                     transform=ax.transAxes, fontsize=12, color="#888")
+            ax.set_title(view_name, fontsize=12, fontweight="bold", pad=18)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            continue
+        _matplotlib_spider_draw(ax, view_name, axis_labels, series)
+        if not handles_seen:
+            handles_seen, labels_seen = ax.get_legend_handles_labels()
+
+    sharp_lbl = SPIDER_CONDITIONS[sharpness_condition][0] if sharpness_condition in SPIDER_CONDITIONS else ""
+    suptitle = "RIDGE — Cross-Condition Spider Charts"
+    if sharp_lbl:
+        suptitle += f"   ·   {sharp_lbl}"
+    fig.suptitle(suptitle, fontsize=16, fontweight="bold", y=0.955)
+
+    if handles_seen:
+        fig.legend(
+            handles_seen, labels_seen,
+            loc="lower center", ncol=min(len(labels_seen), 5),
+            bbox_to_anchor=(0.5, 0.02),
+            fontsize=11, frameon=True, framealpha=0.95,
+        )
+
+    out_path = f"{out_dir}/spider_combined.png"
+    _save_fig(fig, out_path)
+    plt.close(fig)
+    stem = str(Path(out_path).with_suffix(""))
+    return [stem + ".png", stem + ".pdf"]
 
 
 def generate_all_plots(log_dir: str = "tensorboard_logs", out_dir: str = "results") -> None:

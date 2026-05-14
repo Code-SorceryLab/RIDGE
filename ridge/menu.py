@@ -38,9 +38,12 @@ _MENU_ITEMS = [
     ("8",  "TensorBoard",          "Launch training dashboard"),
     ("9",  "Comparison Graphs",    "Generate plots from logs"),
     ("10", "Evaluate Checkpoint",  "Score a saved checkpoint"),
-    ("11", "Sharpness Sweep",      "RQ3 ablation — blend_sharpness 0.5/1.0/2.0/4.0"),
+    ("11", "Sharpness Sweep",      "RQ3 ablation — blend_sharpness 0.0/0.5/1.0/1.5/2.0"),
     ("L",  "Live Dashboard",       "Open Streamlit training monitor in browser"),
+    ("P",  "Post-Training Analysis", "Runs table + spider charts + PNG/PDF export"),
+    ("M",  "Multi-Seed Run",       "Cross-seed CIs for headline paper numbers"),
     ("D",  "Delete All Models",    "Wipe checkpoints & logs — requires DELETE"),
+    ("F",  "Fresh Start (Nuke)",   "Wipe checkpoints, logs, diagnostics, results — requires RESET"),
     ("0",  "Exit",                 "Quit RIDGE"),
 ]
 
@@ -53,10 +56,11 @@ _CONFIG_MAP = {
 }
 
 _SHARPNESS_MAP = {
+    "0.0": "configs/ridge_sharp000.yaml",
     "0.5": "configs/ridge_sharp050.yaml",
     "1.0": "configs/ridge_sharp100.yaml",
+    "1.5": "configs/ridge_sharp150.yaml",
     "2.0": "configs/ridge_sharp200.yaml",
-    "4.0": "configs/ridge_sharp400.yaml",
 }
 
 
@@ -154,6 +158,29 @@ def _do_live_dashboard() -> None:
     """Menu option L — launch dashboard then wait for Enter."""
     _start_dashboard_bg()
     console.print("  [dim]Set live_dashboard: true in your config before training.[/dim]")
+    input("  Press Enter to return to menu...")
+
+
+def _do_post_training_dashboard() -> None:
+    """Menu option P — launch the post-training analysis dashboard."""
+    import subprocess
+    import sys
+
+    dashboard = Path("viewer") / "post_training_dashboard.py"
+    if not dashboard.exists():
+        console.print(f"  [red]{dashboard} not found.[/red]")
+        return
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "streamlit", "run", str(dashboard),
+         "--server.headless", "true", "--server.port", "8502"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    console.print(
+        f"  [bold green]Post-Training Analysis →[/] http://localhost:8502  "
+        f"[dim](PID {proc.pid})[/dim]"
+    )
+    console.print("  [dim]Runs table · spider charts · PNG+PDF export.[/dim]")
     input("  Press Enter to return to menu...")
 
 
@@ -314,12 +341,106 @@ def _do_delete_models() -> None:
         console.print("  [dim]Nothing to delete — directories did not exist.[/dim]")
 
 
+def _do_multi_seed_run() -> None:
+    """Menu option M — run multiple (config × seed) combinations for cross-seed CIs."""
+    import random
+    import time
+
+    console.print("\n  [bold]Multi-Seed Run[/] — collect cross-seed CIs for paper-headline conditions\n")
+
+    default_configs = [
+        "configs/ridge_sharp100.yaml",
+        "configs/ridge_sharp150.yaml",
+        "configs/craftsman.yaml",
+    ]
+    console.print("  [dim]Default configs (Enter to accept):[/]")
+    for c in default_configs:
+        console.print(f"    [dim]• {c}[/]")
+    user_in = input("\n  Configs (space-separated, Enter for defaults): ").strip()
+    configs = user_in.split() if user_in else default_configs
+
+    raw_n = input("  How many NEW seeds per condition [2]: ").strip()
+    try:
+        n_seeds = int(raw_n) if raw_n else 2
+    except ValueError:
+        n_seeds = 2
+
+    seeds = [random.randint(10000, 99999) for _ in range(n_seeds)]
+    total = len(configs) * n_seeds
+    est_hours = total * 5.25  # ~5h 15min per 1M-step run on this machine
+
+    console.print(f"\n  [bold]Plan:[/] {len(configs)} configs × {n_seeds} seeds = {total} runs")
+    console.print(f"  [dim]Seeds: {seeds}[/dim]")
+    console.print(f"  [dim]Estimated time: ~{est_hours:.0f} hours[/dim]\n")
+
+    confirm = input("  Type RUN to start, or anything else to cancel: ").strip()
+    if confirm != "RUN":
+        console.print("  [dim]Cancelled.[/dim]")
+        return
+
+    _print_cpu_info()
+    console.print("\n  [bold cyan]Starting — no further input required.[/]\n")
+
+    from ridge.trainer import Trainer
+
+    t_start = time.time()
+    run_num = 0
+    for config_path in configs:
+        for seed in seeds:
+            run_num += 1
+            elapsed_min = (time.time() - t_start) / 60.0
+            console.print(f"  [bold cyan]{'─' * 48}[/]")
+            console.print(
+                f"  [bold]Run {run_num}/{total}:[/] {config_path}  "
+                f"seed={seed}  (elapsed {elapsed_min:.1f}m)"
+            )
+            try:
+                config = load_default_config(config_path)
+            except FileNotFoundError:
+                console.print(f"  [red]Config not found: {config_path}, skipping.[/red]")
+                continue
+            Trainer(config, seed=seed).train()
+            console.print(f"  [bold green]✓ Run {run_num}/{total} done.[/]\n")
+
+    total_h = (time.time() - t_start) / 3600.0
+    console.print(
+        f"  [bold green]✓ Multi-seed run complete — {total} runs in {total_h:.1f}h.[/]"
+    )
+
+
+def _do_delete_all_results() -> None:
+    """Nuke every results directory for a clean experimental restart."""
+    import shutil
+
+    targets = ("checkpoints", "tensorboard_logs", "diagnostics", "training_live", "results")
+    console.print("\n  [bold red]WARNING — FRESH START will permanently delete:[/]")
+    for t in targets:
+        console.print(f"    • [yellow]{t}/[/yellow]")
+    console.print()
+    confirm = input("  Type RESET to confirm, or anything else to cancel: ").strip()
+    if confirm != "RESET":
+        console.print("  [dim]Cancelled.[/dim]")
+        return
+
+    deleted: list[str] = []
+    for target in targets:
+        p = Path(target)
+        if p.exists():
+            shutil.rmtree(p)
+            deleted.append(target)
+
+    if deleted:
+        console.print(f"  [bold green]✓ Fresh start — deleted:[/] {', '.join(deleted)}")
+    else:
+        console.print("  [dim]Nothing to delete — all directories already clean.[/dim]")
+
+
 def _run_sharpness_sweep() -> None:
     """Menu option 11 — RQ3 blend_sharpness ablation sweep."""
     seed = _prompt_seed()
 
     console.print(f"\n  [bold cyan]Sharpness Sweep — {len(_SHARPNESS_MAP)} conditions, seed={seed}[/]")
-    console.print("  [dim]blend_sharpness: 0.5 → 1.0 → 2.0 → 4.0. No further input required.[/dim]\n")
+    console.print("  [dim]blend_sharpness: 0.0 → 0.5 → 1.0 → 1.5 → 2.0. No further input required.[/dim]\n")
 
     first_config = load_default_config(next(iter(_SHARPNESS_MAP.values())))
     if first_config.get("live_dashboard", False):
@@ -369,8 +490,14 @@ def run_menu() -> None:
             _run_sharpness_sweep()
         elif choice.upper() == "L":
             _do_live_dashboard()
+        elif choice.upper() == "P":
+            _do_post_training_dashboard()
+        elif choice.upper() == "M":
+            _do_multi_seed_run()
         elif choice.upper() == "D":
             _do_delete_models()
+        elif choice.upper() == "F":
+            _do_delete_all_results()
         elif choice == "0":
             _clear()
             console.print("[bold cyan]Goodbye.[/bold cyan]\n")

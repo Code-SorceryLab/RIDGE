@@ -188,23 +188,13 @@ def warrior_reward(info: dict[str, Any], unlocked: set[str]) -> float:
 #    tool_progress ≈ 0.83  →  iron sword crafted  (5/6 tools)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def sigma(state_vector: np.ndarray, config: dict[str, Any]) -> np.ndarray:
-    """Compute 4 normalised persona weights from live game state.
-
-    Args:
-        state_vector: Float32 ndarray of shape (6,).
-        config: Config dict with:
-            sigmoid_temperature : global temperature divisor (legacy, kept for compat)
-            health_threshold    : need level at which survivor activates (default 0.3)
-            weapon_threshold    : tool_progress at which warrior activates (default 0.15)
-            blend_sharpness     : multiplier on all sigmoid slopes (default 1.0).
-                                  >1 = harder, more switch-like transitions.
-                                  <1 = softer, more uniform blending.
-                                  This is the primary RQ3 ablation parameter.
+def _compute_raw_sigmoids(state_vector: np.ndarray, config: dict[str, Any]) -> np.ndarray:
+    """Compute pre-normalisation persona activations.
 
     Returns:
-        Float32 ndarray of shape (4,) — [w_explorer, w_survivor, w_craftsman, w_warrior],
-        summing to 1.
+        Float32 ndarray of shape (4,) — raw sigmoid outputs [w_e, w_s, w_c, w_w]
+        before softmax-style normalisation. Used by sigma() for the live blend
+        and by diagnostics to detect normalisation artifacts.
     """
     temp      = float(config.get("sigmoid_temperature", 1.0))
     h_thresh  = float(config.get("health_threshold", 0.3))
@@ -226,8 +216,8 @@ def sigma(state_vector: np.ndarray, config: dict[str, Any]) -> np.ndarray:
 
     # Survivor: driven by live need signal — energy included so agent switches
     # to survivor when tired and is motivated to sleep
-    need  = 1.0 - min(health, food, drink, energy)
-    w_s   = _sigmoid(8.0 * sharpness * (need - h_thresh))
+    need = 1.0 - min(health, food, drink, energy)
+    w_s  = _sigmoid(8.0 * sharpness * (need - h_thresh))
 
     # Craftsman: rises through all tool tiers, never collapses
     w_c = _sigmoid(6.0 * sharpness * (tool_progress - 0.15))
@@ -235,13 +225,32 @@ def sigma(state_vector: np.ndarray, config: dict[str, Any]) -> np.ndarray:
     # Warrior: activates once a sword is crafted (tool_progress > w_thresh)
     w_w = _sigmoid(7.0 * sharpness * (tool_progress - w_thresh))
 
-    weights = np.array([w_e, w_s, w_c, w_w], dtype=np.float32)
-    total = weights.sum()
+    return np.array([w_e, w_s, w_c, w_w], dtype=np.float32)
+
+
+def sigma(state_vector: np.ndarray, config: dict[str, Any]) -> np.ndarray:
+    """Compute 4 normalised persona weights from live game state.
+
+    Args:
+        state_vector: Float32 ndarray of shape (6,).
+        config: Config dict with:
+            sigmoid_temperature : global temperature divisor (legacy, kept for compat)
+            health_threshold    : need level at which survivor activates (default 0.3)
+            weapon_threshold    : tool_progress at which warrior activates (default 0.15)
+            blend_sharpness     : multiplier on all sigmoid slopes (default 1.0).
+                                  >1 = harder, more switch-like transitions.
+                                  <1 = softer, more uniform blending.
+                                  This is the primary RQ3 ablation parameter.
+
+    Returns:
+        Float32 ndarray of shape (4,) — [w_explorer, w_survivor, w_craftsman, w_warrior],
+        summing to 1.
+    """
+    raw = _compute_raw_sigmoids(state_vector, config)
+    total = raw.sum()
     if total < 1e-8:
-        weights = np.ones(4, dtype=np.float32) / 4.0
-    else:
-        weights /= total
-    return weights  # (4,)
+        return np.ones(4, dtype=np.float32) / 4.0
+    return raw / total  # (4,)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
