@@ -1,0 +1,8 @@
+# All-Ones baseline — constant reward of 1.0 every step, no learning signal.
+# Establishes the absolute performance floor: any meaningful reward design
+# must beat this to demonstrate value. Useful as a "did our reward shaping
+# even matter?" sanity check in the paper.
+# Inherits all defaults from default.yaml.
+
+blending_mode: "all_ones"
+run_name: "all_ones_baseline"

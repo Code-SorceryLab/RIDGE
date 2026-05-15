@@ -33,7 +33,8 @@ _MENU_ITEMS = [
     ("3",  "Train Survivor",       "Survival-focused baseline"),
     ("4",  "Train Craftsman",      "Crafting-focused baseline"),
     ("5",  "Train Warrior",        "Combat-focused baseline"),
-    ("6",  "Sweep All Conditions", "Run all 5 conditions sequentially"),
+    ("A",  "Train All-Ones",      "Constant +1.0 reward — sanity-floor baseline"),
+    ("6",  "Sweep All Conditions", "Run all 6 conditions sequentially"),
     ("7",  "Live Viewer",          "Watch agent play in real time"),
     ("8",  "TensorBoard",          "Launch training dashboard"),
     ("9",  "Comparison Graphs",    "Generate plots from logs"),
@@ -53,6 +54,7 @@ _CONFIG_MAP = {
     "3": "configs/survivor.yaml",
     "4": "configs/craftsman.yaml",
     "5": "configs/warrior.yaml",
+    "A": "configs/all_ones.yaml",
 }
 
 _SHARPNESS_MAP = {
@@ -476,6 +478,8 @@ def run_menu() -> None:
             _run_training("configs/craftsman.yaml")
         elif choice == "5":
             _run_training("configs/warrior.yaml")
+        elif choice.upper() == "A":
+            _run_training("configs/all_ones.yaml")
         elif choice == "6":
             _run_sweep()
         elif choice == "7":

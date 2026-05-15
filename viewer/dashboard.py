@@ -46,18 +46,20 @@ def _save_fig(fig: plt.Figure, out_path: str, dpi: int = 150) -> None:
 
 
 CONDITION_COLOURS = {
-    "ridge_adaptive":    "#4CAF50",
-    "explorer_baseline": "#2196F3",
-    "survivor_baseline": "#F44336",
+    "ridge_bs100":        "#4CAF50",
+    "explorer_baseline":  "#2196F3",
+    "survivor_baseline":  "#F44336",
     "craftsman_baseline": "#FF9800",
-    "warrior_baseline":  "#9C27B0",
+    "warrior_baseline":   "#9C27B0",
+    "all_ones_baseline":  "#607D8B",
 }
 CONDITION_LABELS = {
-    "ridge_adaptive":    "RIDGE",
-    "explorer_baseline": "Explorer",
-    "survivor_baseline": "Survivor",
+    "ridge_bs100":        "RIDGE",
+    "explorer_baseline":  "Explorer",
+    "survivor_baseline":  "Survivor",
     "craftsman_baseline": "Craftsman",
-    "warrior_baseline":  "Warrior",
+    "warrior_baseline":   "Warrior",
+    "all_ones_baseline":  "All-Ones",
 }
 
 
@@ -85,6 +87,96 @@ def _find_run_dirs(log_dir: str, condition: str) -> list[str]:
     if not base.exists():
         return []
     return sorted(str(p) for p in base.iterdir() if p.is_dir() and p.name.startswith(condition))
+
+
+# ── Hafner Crafter score (computed offline from achievement rates) ───────────
+
+def _load_achievement_rates_for_run(run_dir: str) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """One-pass load of all 22 achievement (steps, vals) tags for a run."""
+    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+    from viewer.spider_data import ALL_ACHIEVEMENTS
+
+    try:
+        ea = EventAccumulator(run_dir, size_guidance={"scalars": 0})
+        ea.Reload()
+    except Exception:
+        return {}
+    avail = set(ea.Tags().get("scalars", []))
+    out: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for ach in ALL_ACHIEVEMENTS:
+        tag = f"achievements/{ach}"
+        if tag in avail:
+            evs = ea.Scalars(tag)
+            if evs:
+                out[ach] = (
+                    np.array([e.step for e in evs], dtype=np.float64),
+                    np.array([e.value for e in evs], dtype=np.float64),
+                )
+    return out
+
+
+def _hafner_curve_for_run(
+    run_dir: str, x_common: np.ndarray,
+) -> np.ndarray:
+    """Per-step Hafner score: exp(mean(log1p(100·rate_i))) − 1 on n_bins x-axis."""
+    from viewer.spider_data import ALL_ACHIEVEMENTS
+
+    rates = _load_achievement_rates_for_run(run_dir)
+    if not rates:
+        return np.zeros_like(x_common)
+    rate_matrix = np.zeros((len(ALL_ACHIEVEMENTS), len(x_common)), dtype=np.float64)
+    for i, ach in enumerate(ALL_ACHIEVEMENTS):
+        if ach in rates:
+            steps, vals = rates[ach]
+            rate_matrix[i] = np.interp(x_common, steps, vals)
+    rates_pct = 100.0 * rate_matrix
+    return np.exp(np.mean(np.log1p(rates_pct), axis=0)) - 1.0
+
+
+def _hafner_over_seeds(
+    log_dir: str,
+    condition: str,
+    n_bins: int = 200,
+    smooth_window: int = 1,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """Hafner Crafter score over training, mean ± std across seeds (in %)."""
+    run_dirs = _find_run_dirs(log_dir, condition)
+    if not run_dirs:
+        return np.array([]), np.array([]), np.array([]), 0
+
+    # Find x_max from the first achievement tag in each run
+    x_maxes: list[float] = []
+    for rd in run_dirs:
+        rates = _load_achievement_rates_for_run(rd)
+        if rates:
+            x_maxes.append(max(steps[-1] for steps, _ in rates.values()))
+    if not x_maxes:
+        return np.array([]), np.array([]), np.array([]), 0
+
+    x_common = np.linspace(0, min(x_maxes), n_bins)
+    curves = [_hafner_curve_for_run(rd, x_common) for rd in run_dirs]
+    if smooth_window > 1:
+        curves = [_smooth(c, smooth_window) for c in curves]
+    arr = np.stack(curves)
+    return x_common, arr.mean(axis=0), arr.std(axis=0), len(curves)
+
+
+def _hafner_last_n_for_run(run_dir: str, n: int = 100) -> list[float]:
+    """Per-snapshot Hafner scores from the last `n` rate writes (for boxplot)."""
+    from viewer.spider_data import ALL_ACHIEVEMENTS
+
+    rates = _load_achievement_rates_for_run(run_dir)
+    if not rates:
+        return []
+    min_len = min(len(v) for _, v in rates.values())
+    take = min(n, min_len)
+    rate_matrix = np.zeros((len(ALL_ACHIEVEMENTS), take), dtype=np.float64)
+    for i, ach in enumerate(ALL_ACHIEVEMENTS):
+        if ach in rates:
+            _, vals = rates[ach]
+            rate_matrix[i] = vals[-take:]
+    rates_pct = 100.0 * rate_matrix
+    return (np.exp(np.mean(np.log1p(rates_pct), axis=0)) - 1.0).tolist()
 
 
 def _smooth(y: np.ndarray, window: int) -> np.ndarray:
@@ -215,8 +307,8 @@ def plot_crafter_score(
     fig, ax = plt.subplots(figsize=(11, 6))
 
     for idx, (cond, colour) in enumerate(CONDITION_COLOURS.items()):
-        x, mean_y, std_y, n = _mean_over_seeds(
-            log_dir, cond, "episode/crafter_score", smooth_window=15,
+        x, mean_y, std_y, n = _hafner_over_seeds(
+            log_dir, cond, smooth_window=15,
         )
         if not len(x):
             continue
@@ -225,7 +317,7 @@ def plot_crafter_score(
 
     _format_steps_axis(ax)
     ax.set_xlabel("Training Steps")
-    ax.set_ylabel("Crafter Score (geometric mean success rate)")
+    ax.set_ylabel("Crafter Score (%) — Hafner 2022")
     ax.set_title("Crafter Score over Training — RIDGE vs Baselines")
     ax.legend(loc="upper left")
     ax.grid(True, alpha=0.25, linestyle="--")
@@ -264,7 +356,7 @@ def plot_training_stability(
 
 def plot_weight_trajectories(
     log_dir: str,
-    run_name: str = "ridge_adaptive",
+    run_name: str = "ridge_bs100",
     out_path: str = "results/weight_trajectories.png",
 ) -> None:
     fig, ax = plt.subplots(figsize=(11, 5))
@@ -304,11 +396,9 @@ def plot_score_distribution(
     data, labels, colours = [], [], []
     for cond, colour in CONDITION_COLOURS.items():
         run_dirs = _find_run_dirs(log_dir, cond)
-        scores = []
+        scores: list[float] = []
         for rd in run_dirs:
-            _, vals = _load_tb_scalars(rd, "episode/crafter_score")
-            if len(vals):
-                scores.extend(vals[-200:].tolist())
+            scores.extend(_hafner_last_n_for_run(rd, n=100))
         if scores:
             data.append(scores)
             labels.append(CONDITION_LABELS.get(cond, cond))
@@ -338,8 +428,8 @@ def plot_score_distribution(
         jitter = rng.uniform(-0.18, 0.18, size=len(scores))
         ax.scatter(i + jitter, scores, color=colour, alpha=0.25, s=8, zorder=2)
 
-    ax.set_ylabel("Crafter Score")
-    ax.set_title("Score Distribution — Final 200 Episodes per Seed")
+    ax.set_ylabel("Crafter Score (%) — Hafner 2022")
+    ax.set_title("Score Distribution — Final 100 Snapshots per Seed")
     ax.grid(True, alpha=0.25, linestyle="--", axis="y")
     fig.tight_layout()
     _save_fig(fig, out_path)
@@ -352,9 +442,13 @@ def plot_per_achievement_heatmap(
 ) -> None:
     from ridge.game import ACHIEVEMENTS
 
-    conditions = list(CONDITION_COLOURS.keys())
-    labels     = [CONDITION_LABELS.get(c, c) for c in conditions]
-    matrix     = np.zeros((len(ACHIEVEMENTS), len(conditions)), dtype=np.float32)
+    # Only include conditions that actually have run data — empty columns
+    # waste figure real-estate and confuse the colour scale.
+    conditions = [c for c in CONDITION_COLOURS if _find_run_dirs(log_dir, c)]
+    if not conditions:
+        return
+    labels  = [CONDITION_LABELS.get(c, c) for c in conditions]
+    matrix  = np.zeros((len(ACHIEVEMENTS), len(conditions)), dtype=np.float32)
 
     for j, cond in enumerate(conditions):
         run_dirs = _find_run_dirs(log_dir, cond)
@@ -411,8 +505,8 @@ def plot_blend_sharpness(
     fig, ax = plt.subplots(figsize=(11, 6))
 
     for idx, (cond, (label, colour)) in enumerate(SHARPNESS_CONDITIONS.items()):
-        x, mean_y, std_y, n = _mean_over_seeds(
-            log_dir, cond, tag, smooth_window=15,
+        x, mean_y, std_y, n = _hafner_over_seeds(
+            log_dir, cond, smooth_window=15,
         )
         if not len(x):
             continue
@@ -420,7 +514,7 @@ def plot_blend_sharpness(
 
     _format_steps_axis(ax)
     ax.set_xlabel("Training Steps")
-    ax.set_ylabel("Crafter Score (geometric mean success rate)")
+    ax.set_ylabel("Crafter Score (%) — Hafner 2022")
     ax.set_title("RIDGE — Blend Sharpness Ablation (RQ3)")
     ax.legend(loc="upper left")
     ax.grid(True, alpha=0.25, linestyle="--")

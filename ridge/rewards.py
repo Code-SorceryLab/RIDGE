@@ -278,6 +278,14 @@ def compute_blended_reward(
     """
     mode: str = config.get("blending_mode", "ridge")
 
+    # All-ones sanity baseline: constant +1.0 every step, no informative gradient.
+    # Establishes the absolute floor — any persona/RIDGE setup must beat this to
+    # demonstrate that reward shaping is doing real work.
+    if mode == "all_ones":
+        weights = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
+        per_persona = {"explorer": 1.0, "survivor": 1.0, "craftsman": 1.0, "warrior": 1.0}
+        return 1.0, weights, per_persona
+
     r_e = explorer_reward (info, episode_unlocked["explorer"])
     r_s = survivor_reward (info, episode_unlocked["survivor"])
     r_c = craftsman_reward(info, episode_unlocked["craftsman"])

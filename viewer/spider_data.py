@@ -40,12 +40,16 @@ SPIDER_CONDITIONS: dict[str, tuple[str, str]] = {
     "survivor_baseline":  ("Survivor",     "#F44336"),
     "craftsman_baseline": ("Craftsman",    "#FFB74D"),
     "warrior_baseline":   ("Warrior",      "#9C27B0"),
+    "all_ones_baseline":  ("All-Ones",     "#607D8B"),
 }
 SHARPNESS_KEYS = (
     "ridge_adaptive", "ridge_bs000", "ridge_bs050",
     "ridge_bs100", "ridge_bs150", "ridge_bs200",
 )
-FIXED_BASELINE_KEYS = ("explorer_baseline", "survivor_baseline", "craftsman_baseline", "warrior_baseline")
+FIXED_BASELINE_KEYS = (
+    "explorer_baseline", "survivor_baseline", "craftsman_baseline",
+    "warrior_baseline", "all_ones_baseline",
+)
 
 TRAINING_METRIC_AXES: list[tuple[str, str, str]] = [
     ("episode/crafter_score",   "Crafter Score",     "global_max"),
@@ -116,6 +120,17 @@ def load_condition(log_dir: str, prefix: str) -> dict[str, Any] | None:
             out["weights"][tag.split("/", 1)[1]] = m
         else:
             out["metrics"][tag] = m
+
+    # Override episode/crafter_score with the official Hafner 2022 formula
+    # computed offline from achievement rates. This keeps OLD runs (logged
+    # under a non-Hafner formula) and NEW runs on a single consistent scale.
+    rates_pct = np.array(
+        [100.0 * out["achievements"].get(a, 0.0) for a in ALL_ACHIEVEMENTS]
+    )
+    if rates_pct.size:
+        out["metrics"]["episode/crafter_score"] = float(
+            np.exp(np.mean(np.log1p(rates_pct))) - 1.0
+        )
     return out
 
 

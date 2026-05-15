@@ -456,24 +456,16 @@ class Trainer:
     # -------------------------------------------------------------------------
 
     def _compute_crafter_score(self) -> float:
-        """Official Crafter score: geometric mean of per-achievement success rates.
-
-        Matches the formula in Hafner 2021 (ICLR 2022):
-            score = exp( (1/22) * Σ log(max(rate_i, 1e-3)) )
-
-        A floor of 1e-3 prevents log(0) while keeping unseen achievements
-        near-zero rather than exactly zero (consistent with the paper's table).
-        Computed over the last 100 episodes (_achievement_window).
-        """
-        
+        """Official Crafter score (Hafner 2022): geometric mean with +1% offset."""
         if not self._achievement_window:
             return 0.0
         n = len(self._achievement_window)
-        log_sum = 0.0
-        for ach in ALL_ACHIEVEMENTS:
-            rate = sum(1 for ep in self._achievement_window if ach in ep) / n
-            log_sum += np.log(max(rate, 1e-3))
-        return float(np.exp(log_sum / len(ALL_ACHIEVEMENTS)))
+        # percentages in [0, 100]
+        rates_pct = np.array([
+            100 * sum(1 for ep in self._achievement_window if ach in ep) / n
+            for ach in ALL_ACHIEVEMENTS
+        ])
+        return float(np.exp(np.mean(np.log(1 + rates_pct))) - 1)  # returns a percentage
 
     def _log_episode(
         self,

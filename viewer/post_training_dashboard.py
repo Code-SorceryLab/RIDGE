@@ -131,7 +131,7 @@ for cond, (label, _) in SPIDER_CONDITIONS.items():
         "Status":        status,
         "Seeds":         d["n_seeds"],
         "Latest Step":   f"{step:,}" if step else "—",
-        "Crafter Score": f"{score:.4f}"        if score   is not None else "—",
+        "Hafner Score":  f"{score:.2f}%"      if score   is not None else "—",
         "Achievements":  f"{ach_cum:.1f}/22"  if ach_cum is not None else "—",
     })
 
