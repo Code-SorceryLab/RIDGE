@@ -17,7 +17,7 @@ rollout_steps: 512
 
 # Training
 total_steps: 1_000_000
-num_seeds: 6
+num_seeds: 5
 checkpoint_every: 50_000
 seed: 42
 num_threads: 16
