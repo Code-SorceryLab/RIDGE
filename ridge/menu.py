@@ -58,11 +58,14 @@ _CONFIG_MAP = {
 }
 
 _SHARPNESS_MAP = {
-    "0.0": "configs/ridge_sharp000.yaml",
-    "0.5": "configs/ridge_sharp050.yaml",
-    "1.0": "configs/ridge_sharp100.yaml",
-    "1.5": "configs/ridge_sharp150.yaml",
-    "2.0": "configs/ridge_sharp200.yaml",
+    1.0: "configs/ridge_sharp100.yaml",
+    1.1: "configs/ridge_sharp110.yaml",
+    1.2: "configs/ridge_sharp120.yaml",
+    1.3: "configs/ridge_sharp130.yaml",
+    1.4: "configs/ridge_sharp140.yaml",
+    1.5: "configs/ridge_sharp150.yaml",
+    1.6: "configs/ridge_sharp160.yaml",
+    1.7: "configs/ridge_sharp170.yaml",
 }
 
 
@@ -439,7 +442,6 @@ def _do_delete_all_results() -> None:
 
 def _run_sharpness_sweep() -> None:
     """Menu option 11 — RQ3 blend_sharpness ablation sweep, multi-seed."""
-    from ridge.trainer import Trainer  # hoisted out of the loop
 
     first_config = load_default_config(next(iter(_SHARPNESS_MAP.values())))
     base_seed = first_config.get("seed", 351515468)

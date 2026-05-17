@@ -20,7 +20,7 @@ total_steps: 1_000_000
 num_seeds: 6
 checkpoint_every: 50_000
 seed: 42
-num_threads: 6
+num_threads: 16
 
 # RIDGE — 4 personas: explorer | survivor | craftsman | warrior
 blending_mode: "ridge"
