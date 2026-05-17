@@ -9,14 +9,15 @@ gamma: 0.99
 gae_lambda: 0.95
 clip_epsilon: 0.2
 entropy_coef: 0.01
-value_coef: 0.1
+value_coef: 0.5
 max_grad_norm: 0.5
 ppo_epochs: 4
 num_minibatches: 8
 rollout_steps: 512
 
 # Training
-total_steps: 500_000
+total_steps: 1_000_000
+num_seeds: 6
 checkpoint_every: 50_000
 seed: 42
 num_threads: 6
@@ -25,12 +26,19 @@ num_threads: 6
 blending_mode: "ridge"
 sigmoid_temperature: 1.0
 health_threshold: 0.3
-weapon_threshold: 0.15
-blend_sharpness: 1.25
+hunger_threshold: 0.3
+progress_threshold: 0.5
+weapon_threshold: 0.15   # tool_progress at which warrior drive activates
+blend_sharpness: 1.0     # >1 = harder switches, <1 = softer blending (RQ3 ablation)
 
 # Viewer
-live_view: false
-render_fps: 15
+live_view: false       # show live rendering during training (slows down training)
+render_fps: 30
+render_every: 4          # render to pygame window every N training steps (1=every step)
+live_dashboard: true     # write training_live/ files for Streamlit monitor
+
+# Training control
+auto_resume: true       # auto-load latest checkpoint if run is interrupted
 
 # Logging
 log_dir: "tensorboard_logs"

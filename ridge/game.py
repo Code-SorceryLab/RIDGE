@@ -1,7 +1,6 @@
 """Crafter environment wrapper, observation processing, and state extraction."""
 
 import logging
-from collections import deque
 from typing import Any
 
 import crafter
@@ -47,7 +46,7 @@ class EpisodeStats:
         self.total_reward: float = 0.0
         self.steps: int = 0
         self.achievements_unlocked: list[str] = []
-        self.persona_weights: list[np.ndarray] = []  # list of (4,) arrays
+        self.persona_weights: list[np.ndarray] = []  # list of (3,) arrays
         self.score: float = 0.0
 
     def update(self, reward: float, info: dict[str, Any], weights: np.ndarray) -> None:
@@ -74,7 +73,7 @@ class EpisodeStats:
             Dict with total_reward, steps, achievements_unlocked, score,
             and mean_weights.
         """
-        weights_arr = np.stack(self.persona_weights) if self.persona_weights else np.zeros((1, 3))
+        weights_arr = np.stack(self.persona_weights) if self.persona_weights else np.zeros((1, 4))
         return {
             "total_reward": self.total_reward,
             "steps": self.steps,
@@ -113,9 +112,6 @@ class CrafterWrapper:
         self._visited_positions: set[tuple[int, int]] = set()
         self._last_pos: tuple[int, int] | None = None
         self._steps_this_episode: int = 0
-        # Rolling window of last 5 achievement names unlocked this episode.
-        # Passed into the network as structured context about tech-tree progress.
-        self._ach_history: deque[str] = deque(maxlen=5)
 
         logger.debug("CrafterWrapper initialised (seed=%s)", seed)
 
@@ -131,7 +127,6 @@ class CrafterWrapper:
         self._visited_positions = set()
         self._last_pos = None
         self._steps_this_episode = 0
-        self._ach_history = deque(maxlen=5)
 
         info: dict[str, Any] = {
             "achievements": {name: 0 for name in ACHIEVEMENTS},
@@ -219,12 +214,6 @@ class CrafterWrapper:
         info["visited_count"] = len(self._visited_positions)
         info["delta_visited"] = len(self._visited_positions) - before  # 0 or 1
 
-        # Update rolling achievement history
-        for name in ACHIEVEMENTS:
-            if info["achievements"].get(name, 0) and name not in self._ach_history:
-                self._ach_history.append(name)
-        info["ach_history"] = list(self._ach_history)  # list of up to 5 names
-
         info["steps_this_episode"] = self._steps_this_episode
         return info
 
@@ -273,10 +262,6 @@ class CrafterWrapper:
             weights: Persona weights array of shape (3,).
         """
         self._episode_stats.update(reward, info, weights)
-
-    def get_ach_history(self) -> list[str]:
-        """Return the rolling list of last 5 achievements unlocked this episode."""
-        return list(self._ach_history)
 
     def get_episode_stats(self) -> EpisodeStats:
         """Return the stats object for the current episode.

@@ -1,0 +1,6 @@
+# RIDGE blend_sharpness ablation — baseline sigmoid (RQ3)
+# Inherits all defaults from default.yaml
+
+blending_mode: "ridge"
+blend_sharpness: 1.0
+run_name: "ridge_bs100"
