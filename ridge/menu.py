@@ -446,7 +446,7 @@ def _run_sharpness_sweep() -> None:
     
     first_config = load_default_config(next(iter(_SHARPNESS_MAP.values())))
     base_seed = first_config.get("seed", 351515468)
-    num_seeds = first_config.get("num_seeds", 6)
+    num_seeds = first_config.get("num_seeds", 5)
     seeds = [base_seed + i for i in range(num_seeds)]
 
     if first_config.get("live_dashboard", False):
