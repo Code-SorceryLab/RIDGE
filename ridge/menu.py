@@ -442,7 +442,8 @@ def _do_delete_all_results() -> None:
 
 def _run_sharpness_sweep() -> None:
     """Menu option 11 — RQ3 blend_sharpness ablation sweep, multi-seed."""
-
+    from ridge.trainer import Trainer
+    
     first_config = load_default_config(next(iter(_SHARPNESS_MAP.values())))
     base_seed = first_config.get("seed", 351515468)
     num_seeds = first_config.get("num_seeds", 6)
