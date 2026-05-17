@@ -438,27 +438,41 @@ def _do_delete_all_results() -> None:
 
 
 def _run_sharpness_sweep() -> None:
-    """Menu option 11 — RQ3 blend_sharpness ablation sweep."""
-    seed = _prompt_seed()
-
-    console.print(f"\n  [bold cyan]Sharpness Sweep — {len(_SHARPNESS_MAP)} conditions, seed={seed}[/]")
-    console.print("  [dim]blend_sharpness: 0.0 → 0.5 → 1.0 → 1.5 → 2.0. No further input required.[/dim]\n")
+    """Menu option 11 — RQ3 blend_sharpness ablation sweep, multi-seed."""
+    from ridge.trainer import Trainer  # hoisted out of the loop
 
     first_config = load_default_config(next(iter(_SHARPNESS_MAP.values())))
+    base_seed = first_config.get("seed", 351515468)
+    num_seeds = first_config.get("num_seeds", 6)
+    seeds = [base_seed + i for i in range(num_seeds)]
+
     if first_config.get("live_dashboard", False):
         _start_dashboard_bg()
 
-    total = len(_SHARPNESS_MAP)
-    for i, (sharpness, config_path) in enumerate(_SHARPNESS_MAP.items(), start=1):
-        console.print(f"  [bold cyan]{'─' * 48}[/]")
-        console.print(f"  [bold]Sharpness {i}/{total}:[/] blend_sharpness={sharpness}  ({config_path})")
-        config = load_default_config(config_path)
-        from ridge.trainer import Trainer
-        trainer = Trainer(config, seed=seed)
-        trainer.train()
-        console.print(f"  [bold green]✓ Sharpness {i}/{total} done.[/]\n")
+    total_conditions = len(_SHARPNESS_MAP)
+    total_runs = total_conditions * num_seeds
 
-    console.print(f"  [bold green]✓ Sharpness sweep complete — all {total} conditions finished.[/]")
+    console.print(f"\n  [bold cyan]Sharpness Sweep — {total_conditions} conditions × {num_seeds} seeds = {total_runs} runs[/]")
+    console.print(f"  [dim]blend_sharpness: {list(_SHARPNESS_MAP.keys())}[/]")
+    console.print(f"  [dim]seeds: {seeds}[/]\n")
+
+    run_idx = 0
+    for seed in seeds:
+        for sharpness, config_path in _SHARPNESS_MAP.items():
+            run_idx += 1
+            console.print(f"  [bold cyan]{'─' * 48}[/]")
+            console.print(f"  [bold]Run {run_idx}/{total_runs}:[/] sharpness={sharpness}, seed={seed}")
+
+            config = load_default_config(config_path)
+            # Override run_name so checkpoints/logs don't collide
+            base_name = config.get("run_name", f"ridge_bs{int(sharpness*100):03d}")
+            config["run_name"] = f"{base_name}_seed{seed}"
+
+            trainer = Trainer(config, seed=seed)
+            trainer.train()
+            console.print(f"  [bold green]✓ Run {run_idx}/{total_runs} done.[/]\n")
+
+    console.print(f"  [bold green]✓ Sweep complete — {total_runs} runs finished.[/]")
 
 
 def run_menu() -> None:
