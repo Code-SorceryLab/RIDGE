@@ -1,0 +1,8 @@
+# RIDGE blend_sharpness ablation — uniform blending (RQ3)
+# At sharpness=0, all sigmoids collapse to 0.5 → normalised weights = (0.25, 0.25, 0.25, 0.25).
+# This is the static-uniform baseline: does state-conditioning add anything?
+# Inherits all defaults from default.yaml
+
+blending_mode: "ridge"
+blend_sharpness: 1.7
+run_name: "ridge_bs170"
