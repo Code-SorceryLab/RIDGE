@@ -34,8 +34,14 @@ SPIDER_CONDITIONS: dict[str, tuple[str, str]] = {
     "ridge_bs000":        ("RIDGE α=0.0",  "#80DEEA"),
     "ridge_bs050":        ("RIDGE α=0.5",  "#4DD0E1"),
     "ridge_bs100":        ("RIDGE α=1.0",  "#4CAF50"),
-    "ridge_bs150":        ("RIDGE α=1.5",  "#FBC02D"),
-    "ridge_bs200":        ("RIDGE α=2.0",  "#E64A19"),
+    "ridge_bs110":        ("RIDGE α=1.1",  "#8BC34A"),
+    "ridge_bs120":        ("RIDGE α=1.2",  "#CDDC39"),
+    "ridge_bs130":        ("RIDGE α=1.3",  "#FFEB3B"),
+    "ridge_bs140":        ("RIDGE α=1.4",  "#FFC107"),
+    "ridge_bs150":        ("RIDGE α=1.5",  "#FF9800"),
+    "ridge_bs160":        ("RIDGE α=1.6",  "#FF5722"),
+    "ridge_bs170":        ("RIDGE α=1.7",  "#E64A19"),
+    "ridge_bs200":        ("RIDGE α=2.0",  "#B71C1C"),
     "explorer_baseline":  ("Explorer",     "#2196F3"),
     "survivor_baseline":  ("Survivor",     "#F44336"),
     "craftsman_baseline": ("Craftsman",    "#FFB74D"),
@@ -43,8 +49,11 @@ SPIDER_CONDITIONS: dict[str, tuple[str, str]] = {
     "all_ones_baseline":  ("All-Ones",     "#607D8B"),
 }
 SHARPNESS_KEYS = (
-    "ridge_adaptive", "ridge_bs000", "ridge_bs050",
-    "ridge_bs100", "ridge_bs150", "ridge_bs200",
+    "ridge_adaptive",
+    "ridge_bs000", "ridge_bs050",
+    "ridge_bs100", "ridge_bs110", "ridge_bs120", "ridge_bs130",
+    "ridge_bs140", "ridge_bs150", "ridge_bs160", "ridge_bs170",
+    "ridge_bs200",
 )
 FIXED_BASELINE_KEYS = (
     "explorer_baseline", "survivor_baseline", "craftsman_baseline",
@@ -62,10 +71,18 @@ TRAINING_METRIC_AXES: list[tuple[str, str, str]] = [
 # ─── Data loading (no Streamlit dependency — caller adds caching as needed) ───
 
 def find_run_dirs(log_dir: str, prefix: str) -> list[str]:
+    """Return run dirs whose name is exactly `prefix` or `prefix` followed by
+    `_seed…`. The trailing-boundary check prevents short prefixes
+    (e.g. `ridge_bs10`) from accidentally matching longer condition runs
+    (e.g. `ridge_bs100_seed42_…`) and merging unrelated sweeps.
+    """
     base = Path(log_dir)
     if not base.exists():
         return []
-    return sorted(str(p) for p in base.iterdir() if p.is_dir() and p.name.startswith(prefix))
+    return sorted(
+        str(p) for p in base.iterdir()
+        if p.is_dir() and (p.name == prefix or p.name.startswith(prefix + "_seed"))
+    )
 
 
 def load_condition(log_dir: str, prefix: str) -> dict[str, Any] | None:

@@ -83,10 +83,17 @@ def _load_tb_scalars(log_dir: str, tag: str) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _find_run_dirs(log_dir: str, condition: str) -> list[str]:
+    """Return run dirs whose name is exactly `condition` or `condition` followed by
+    `_seed…` — the trailing boundary stops `ridge_bs10` from matching
+    `ridge_bs100_seed42_*` and silently merging unrelated runs.
+    """
     base = Path(log_dir)
     if not base.exists():
         return []
-    return sorted(str(p) for p in base.iterdir() if p.is_dir() and p.name.startswith(condition))
+    return sorted(
+        str(p) for p in base.iterdir()
+        if p.is_dir() and (p.name == condition or p.name.startswith(condition + "_seed"))
+    )
 
 
 # ── Hafner Crafter score (computed offline from achievement rates) ───────────
@@ -486,13 +493,21 @@ def plot_per_achievement_heatmap(
     plt.close(fig)
 
 
-# Sharpness ablation — colour scale: cool (soft) → warm (sharp)
+# Sharpness ablation — colour scale: cool (soft) → warm (sharp).
+# Covers every value trained by the menu's _SHARPNESS_MAP sweep (bs100..bs170).
+# bs000/bs050/bs200 kept so older single-run data still plots if present.
 SHARPNESS_CONDITIONS = {
     "ridge_bs000":    ("0.0  (uniform)", "#80DEEA"),
     "ridge_bs050":    ("0.5  (soft)",    "#4DD0E1"),
     "ridge_bs100":    ("1.0  (default)", "#4CAF50"),
-    "ridge_bs150":    ("1.5",            "#FBC02D"),
-    "ridge_bs200":    ("2.0  (sharp)",   "#E64A19"),
+    "ridge_bs110":    ("1.1",            "#8BC34A"),
+    "ridge_bs120":    ("1.2",            "#CDDC39"),
+    "ridge_bs130":    ("1.3",            "#FFEB3B"),
+    "ridge_bs140":    ("1.4",            "#FFC107"),
+    "ridge_bs150":    ("1.5",            "#FF9800"),
+    "ridge_bs160":    ("1.6",            "#FF5722"),
+    "ridge_bs170":    ("1.7",            "#E64A19"),
+    "ridge_bs200":    ("2.0  (sharp)",   "#B71C1C"),
 }
 
 
