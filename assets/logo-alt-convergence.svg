@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="200" viewBox="0 0 640 200" role="img" aria-labelledby="ridge-title ridge-desc">
+  <title id="ridge-title">RIDGE — State-Conditioned Reward Blending</title>
+  <desc id="ridge-desc">Four colored persona paths (blue, red, orange, purple) ascend and converge into a single green peak, beside the RIDGE wordmark.</desc>
+  <defs>
+    <linearGradient id="ridge-panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b2330"/>
+      <stop offset="1" stop-color="#11161f"/>
+    </linearGradient>
+    <linearGradient id="ridge-peak" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#2e7d32"/>
+      <stop offset="1" stop-color="#66bb6a"/>
+    </linearGradient>
+    <linearGradient id="ridge-wordmark" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#cdd6e2"/>
+    </linearGradient>
+    <radialGradient id="ridge-converge" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#a5f3b0"/>
+      <stop offset="0.5" stop-color="#4CAF50" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#4CAF50" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="ridge-clip">
+      <rect x="40" y="40" width="120" height="120" rx="20"/>
+    </clipPath>
+  </defs>
+
+  <!-- Self-contained dark panel: identical on light and dark README themes -->
+  <rect x="2" y="2" width="636" height="196" rx="20" fill="url(#ridge-panel)" stroke="#3a4658" stroke-width="2"/>
+
+  <!-- Mark: four persona ascent paths converging into one green peak -->
+  <g clip-path="url(#ridge-clip)">
+    <rect x="40" y="40" width="120" height="120" fill="#0e131b"/>
+    <line x1="54" y1="140" x2="146" y2="140" stroke="#2c3645" stroke-width="2"/>
+
+    <!-- Explorer (blue) -->
+    <path d="M60 140 C 72 130, 86 106, 100 60" fill="none" stroke="#2196F3" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+    <!-- Survivor (red) -->
+    <path d="M82 140 C 90 128, 95 102, 100 60" fill="none" stroke="#F44336" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+    <!-- Craftsman (orange) -->
+    <path d="M118 140 C 110 128, 105 102, 100 60" fill="none" stroke="#FF9800" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+    <!-- Warrior (purple) -->
+    <path d="M140 140 C 128 130, 114 106, 100 60" fill="none" stroke="#9C27B0" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+
+    <!-- The single converged peak / ridge -->
+    <path d="M62 140 L100 58 L138 140 Z" fill="url(#ridge-peak)" opacity="0.28"/>
+    <path d="M62 140 L100 58 L138 140" fill="none" stroke="url(#ridge-peak)" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>
+
+    <!-- Convergence glow + blend node -->
+    <circle cx="100" cy="60" r="20" fill="url(#ridge-converge)"/>
+    <circle cx="100" cy="60" r="7" fill="#eafff0" stroke="#4CAF50" stroke-width="3"/>
+  </g>
+  <rect x="40" y="40" width="120" height="120" rx="20" fill="none" stroke="#3a4658" stroke-width="2"/>
+
+  <!-- Wordmark -->
+  <text x="192" y="104" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="72" font-weight="800" letter-spacing="3" fill="url(#ridge-wordmark)">RIDGE</text>
+
+  <!-- Accent underline tied to convergence green, width-matched to wordmark -->
+  <rect x="194" y="120" width="252" height="4" rx="2" fill="#4CAF50"/>
+
+  <!-- Tagline -->
+  <text x="194" y="148" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="500" letter-spacing="0.6" fill="#aab6c6">State-Conditioned Reward Blending</text>
+
+  <!-- Persona color legend -->
+  <g>
+    <circle cx="199" cy="171" r="4" fill="#2196F3"/>
+    <circle cx="215" cy="171" r="4" fill="#F44336"/>
+    <circle cx="231" cy="171" r="4" fill="#FF9800"/>
+    <circle cx="247" cy="171" r="4" fill="#9C27B0"/>
+    <text x="260" y="175" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="500" letter-spacing="0.4" fill="#8895a6">Explorer · Survivor · Craftsman · Warrior</text>
+  </g>
+</svg>

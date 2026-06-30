@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 200" width="640" height="200" role="img" aria-label="RIDGE - State-Conditioned Reward Blending">
+  <defs>
+    <linearGradient id="rg-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#172033"/>
+    </linearGradient>
+    <linearGradient id="rg-blend" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2196F3"/>
+      <stop offset="0.33" stop-color="#F44336"/>
+      <stop offset="0.66" stop-color="#FF9800"/>
+      <stop offset="1" stop-color="#9C27B0"/>
+    </linearGradient>
+    <linearGradient id="rg-ridge" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#69F0AE"/>
+      <stop offset="1" stop-color="#4CAF50"/>
+    </linearGradient>
+    <clipPath id="rg-tile"><rect x="40" y="44" width="116" height="116" rx="24"/></clipPath>
+  </defs>
+  <rect x="2" y="2" width="636" height="196" rx="28" fill="url(#rg-bg)" stroke="#2b3a52" stroke-width="2"/>
+  <rect x="40" y="44" width="116" height="116" rx="24" fill="#0b1220" stroke="#2b3a52" stroke-width="2"/>
+  <g clip-path="url(#rg-tile)">
+    <path d="M40 160 L62 120 L82 134 L100 98 L120 126 L138 92 L156 118 L156 160 Z" fill="url(#rg-blend)" opacity="0.9"/>
+    <path d="M40 150 C92 150 100 70 156 70" fill="none" stroke="url(#rg-ridge)" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="67" cy="142" r="5" fill="#2196F3" stroke="#0b1220" stroke-width="1.5"/>
+    <circle cx="87" cy="122" r="5" fill="#F44336" stroke="#0b1220" stroke-width="1.5"/>
+    <circle cx="106" cy="98" r="5" fill="#FF9800" stroke="#0b1220" stroke-width="1.5"/>
+    <circle cx="127" cy="78" r="5" fill="#9C27B0" stroke="#0b1220" stroke-width="1.5"/>
+  </g>
+  <text x="190" y="106" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="74" font-weight="800" fill="#f8fafc" letter-spacing="1.5">RIDGE</text>
+  <rect x="192" y="120" width="300" height="3" rx="1.5" fill="url(#rg-ridge)"/>
+  <text x="192" y="147" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="500" fill="#9fb0c7" letter-spacing="2.2">STATE-CONDITIONED REWARD BLENDING</text>
+</svg>
