@@ -34,28 +34,18 @@ _MENU_ITEMS = [
     ("4",  "Train Craftsman",      "Crafting-focused baseline"),
     ("5",  "Train Warrior",        "Combat-focused baseline"),
     ("A",  "Train All-Ones",      "Constant +1.0 reward — sanity-floor baseline"),
-    ("6",  "Sweep All Conditions", "Run all 6 conditions sequentially"),
-    ("7",  "Live Viewer",          "Watch agent play in real time"),
-    ("8",  "TensorBoard",          "Launch training dashboard"),
-    ("9",  "Comparison Graphs",    "Generate plots from logs"),
-    ("10", "Evaluate Checkpoint",  "Score a saved checkpoint"),
-    ("11", "Sharpness Sweep",      "RQ3 ablation — blend_sharpness 0.0/0.5/1.0/1.5/2.0"),
+    ("6",  "Live Viewer",          "Watch agent play in real time"),
+    ("7",  "TensorBoard",          "Launch training dashboard"),
+    ("8",  "Comparison Graphs",    "Generate plots from logs"),
+    ("9",  "Evaluate Checkpoint",  "Score a saved checkpoint"),
+    ("10", "Sharpness Sweep",      "RQ3 ablation — blend_sharpness 0.0/0.5/1.0/1.5/2.0"),
     ("L",  "Live Dashboard",       "Open Streamlit training monitor in browser"),
     ("P",  "Post-Training Analysis", "Runs table + spider charts + PNG/PDF export"),
-    ("M",  "Multi-Seed Run",       "Cross-seed CIs for headline paper numbers"),
+    ("R",  "Full Paper Re-Sweep",  "All 9 conditions across N seeds (paper CIs)"),
     ("D",  "Delete All Models",    "Wipe checkpoints & logs — requires DELETE"),
     ("F",  "Fresh Start (Nuke)",   "Wipe checkpoints, logs, diagnostics, results — requires RESET"),
     ("0",  "Exit",                 "Quit RIDGE"),
 ]
-
-_CONFIG_MAP = {
-    "1": "configs/ridge_blend.yaml",
-    "2": "configs/explorer.yaml",
-    "3": "configs/survivor.yaml",
-    "4": "configs/craftsman.yaml",
-    "5": "configs/warrior.yaml",
-    "A": "configs/all_ones.yaml",
-}
 
 _SHARPNESS_MAP = {
     "0.0": "configs/ridge_sharp000.yaml",
@@ -64,6 +54,20 @@ _SHARPNESS_MAP = {
     "1.5": "configs/ridge_sharp150.yaml",
     "2.0": "configs/ridge_sharp200.yaml",
 }
+
+# Full paper re-sweep: the 5-point sharpness ablation (sharp100 = RIDGE default,
+# alpha 1.0) plus the four fixed-persona baselines, run across N seeds for CIs.
+_FULL_RESWEEP_CONFIGS = [
+    "configs/ridge_sharp000.yaml",
+    "configs/ridge_sharp050.yaml",
+    "configs/ridge_sharp100.yaml",
+    "configs/ridge_sharp150.yaml",
+    "configs/ridge_sharp200.yaml",
+    "configs/explorer.yaml",
+    "configs/survivor.yaml",
+    "configs/craftsman.yaml",
+    "configs/warrior.yaml",
+]
 
 
 def _clear() -> None:
@@ -210,29 +214,6 @@ def _post_training_prompt(config: dict[str, Any]) -> None:
         _do_comparison_graphs(config.get("log_dir", "tensorboard_logs"))
 
 
-def _run_sweep() -> None:
-    seed = _prompt_seed()
-
-    console.print(f"\n  [bold cyan]Sweep — {len(_CONFIG_MAP)} conditions, seed={seed}[/]")
-    console.print("  [dim]No further input required. Running back-to-back...[/dim]\n")
-
-    first_config = load_default_config(next(iter(_CONFIG_MAP.values())))
-    if first_config.get("live_dashboard", False):
-        _start_dashboard_bg()
-
-    total = len(_CONFIG_MAP)
-    for i, (cond_key, config_path) in enumerate(_CONFIG_MAP.items(), start=1):
-        console.print(f"  [bold cyan]{'─' * 48}[/]")
-        console.print(f"  [bold]Condition {i}/{total}:[/] {config_path}")
-        config = load_default_config(config_path)
-        from ridge.trainer import Trainer
-        trainer = Trainer(config, seed=seed)
-        trainer.train()
-        console.print(f"  [bold green]✓ Condition {i}/{total} done.[/]\n")
-
-    console.print(f"  [bold green]✓ Sweep complete — all {total} conditions finished.[/]")
-
-
 def _do_launch_tensorboard(log_dir: str = "tensorboard_logs") -> None:
     from viewer.dashboard import launch_tensorboard
     proc = launch_tensorboard(log_dir)
@@ -343,73 +324,6 @@ def _do_delete_models() -> None:
         console.print("  [dim]Nothing to delete — directories did not exist.[/dim]")
 
 
-def _do_multi_seed_run() -> None:
-    """Menu option M — run multiple (config × seed) combinations for cross-seed CIs."""
-    import random
-    import time
-
-    console.print("\n  [bold]Multi-Seed Run[/] — collect cross-seed CIs for paper-headline conditions\n")
-
-    default_configs = [
-        "configs/ridge_sharp100.yaml",
-        "configs/ridge_sharp150.yaml",
-        "configs/craftsman.yaml",
-    ]
-    console.print("  [dim]Default configs (Enter to accept):[/]")
-    for c in default_configs:
-        console.print(f"    [dim]• {c}[/]")
-    user_in = input("\n  Configs (space-separated, Enter for defaults): ").strip()
-    configs = user_in.split() if user_in else default_configs
-
-    raw_n = input("  How many NEW seeds per condition [2]: ").strip()
-    try:
-        n_seeds = int(raw_n) if raw_n else 2
-    except ValueError:
-        n_seeds = 2
-
-    seeds = [random.randint(10000, 99999) for _ in range(n_seeds)]
-    total = len(configs) * n_seeds
-    est_hours = total * 5.25  # ~5h 15min per 1M-step run on this machine
-
-    console.print(f"\n  [bold]Plan:[/] {len(configs)} configs × {n_seeds} seeds = {total} runs")
-    console.print(f"  [dim]Seeds: {seeds}[/dim]")
-    console.print(f"  [dim]Estimated time: ~{est_hours:.0f} hours[/dim]\n")
-
-    confirm = input("  Type RUN to start, or anything else to cancel: ").strip()
-    if confirm != "RUN":
-        console.print("  [dim]Cancelled.[/dim]")
-        return
-
-    _print_cpu_info()
-    console.print("\n  [bold cyan]Starting — no further input required.[/]\n")
-
-    from ridge.trainer import Trainer
-
-    t_start = time.time()
-    run_num = 0
-    for config_path in configs:
-        for seed in seeds:
-            run_num += 1
-            elapsed_min = (time.time() - t_start) / 60.0
-            console.print(f"  [bold cyan]{'─' * 48}[/]")
-            console.print(
-                f"  [bold]Run {run_num}/{total}:[/] {config_path}  "
-                f"seed={seed}  (elapsed {elapsed_min:.1f}m)"
-            )
-            try:
-                config = load_default_config(config_path)
-            except FileNotFoundError:
-                console.print(f"  [red]Config not found: {config_path}, skipping.[/red]")
-                continue
-            Trainer(config, seed=seed).train()
-            console.print(f"  [bold green]✓ Run {run_num}/{total} done.[/]\n")
-
-    total_h = (time.time() - t_start) / 3600.0
-    console.print(
-        f"  [bold green]✓ Multi-seed run complete — {total} runs in {total_h:.1f}h.[/]"
-    )
-
-
 def _do_delete_all_results() -> None:
     """Nuke every results directory for a clean experimental restart."""
     import shutil
@@ -438,7 +352,7 @@ def _do_delete_all_results() -> None:
 
 
 def _run_sharpness_sweep() -> None:
-    """Menu option 11 — RQ3 blend_sharpness ablation sweep."""
+    """Menu option 10 — RQ3 blend_sharpness ablation sweep."""
     seed = _prompt_seed()
 
     console.print(f"\n  [bold cyan]Sharpness Sweep — {len(_SHARPNESS_MAP)} conditions, seed={seed}[/]")
@@ -461,6 +375,80 @@ def _run_sharpness_sweep() -> None:
     console.print(f"  [bold green]✓ Sharpness sweep complete — all {total} conditions finished.[/]")
 
 
+def _run_full_resweep() -> None:
+    """Menu option R: full multi-seed re-sweep of every paper condition.
+
+    Runs the five-point sharpness ablation (alpha 0.0 to 2.0, where sharp100 is
+    the RIDGE default) plus the four fixed-persona baselines across N seeds, so
+    every condition gets cross-seed confidence intervals. Equivalent to:
+        scripts/run_multi_seed.py --configs <the 9 configs> --seeds <seeds>
+    auto_resume stays on, so re-running this resumes any interrupted run.
+    """
+    import time
+
+    console.print("\n  [bold]Full Paper Re-Sweep[/]: all 9 conditions across N seeds for CIs\n")
+    for c in _FULL_RESWEEP_CONFIGS:
+        console.print(f"    [dim]• {c}[/]")
+
+    raw = input("\n  Seeds (space-separated) [1 2 3]: ").strip()
+    if raw:
+        try:
+            seeds = [int(s) for s in raw.split()]
+        except ValueError:
+            console.print("  [yellow]Invalid seeds, using 1 2 3[/yellow]")
+            seeds = [1, 2, 3]
+    else:
+        seeds = [1, 2, 3]
+
+    total = len(_FULL_RESWEEP_CONFIGS) * len(seeds)
+    est_hours = total * 5.25  # ~5h 15min per 1M-step run on this machine
+
+    console.print(
+        f"\n  [bold]Plan:[/] {len(_FULL_RESWEEP_CONFIGS)} configs × {len(seeds)} seeds = {total} runs"
+    )
+    console.print(f"  [dim]Seeds: {seeds}[/dim]")
+    console.print(
+        f"  [dim]Estimated time: ~{est_hours:.0f} hours (~{est_hours / 24:.1f} days)[/dim]"
+    )
+    console.print(
+        "  [dim]auto_resume is on: re-run this option to resume an interrupted sweep.[/dim]\n"
+    )
+
+    confirm = input("  Type RUN to start, or anything else to cancel: ").strip()
+    if confirm != "RUN":
+        console.print("  [dim]Cancelled.[/dim]")
+        return
+
+    _print_cpu_info()
+    console.print("\n  [bold cyan]Starting. No further input required.[/]\n")
+
+    from ridge.trainer import Trainer
+
+    t_start = time.time()
+    run_num = 0
+    for config_path in _FULL_RESWEEP_CONFIGS:
+        for seed in seeds:
+            run_num += 1
+            elapsed_min = (time.time() - t_start) / 60.0
+            console.print(f"  [bold cyan]{'─' * 48}[/]")
+            console.print(
+                f"  [bold]Run {run_num}/{total}:[/] {config_path}  "
+                f"seed={seed}  (elapsed {elapsed_min:.1f}m)"
+            )
+            try:
+                config = load_default_config(config_path)
+            except FileNotFoundError:
+                console.print(f"  [red]Config not found: {config_path}, skipping.[/red]")
+                continue
+            Trainer(config, seed=seed).train()
+            console.print(f"  [bold green]✓ Run {run_num}/{total} done.[/]\n")
+
+    total_h = (time.time() - t_start) / 3600.0
+    console.print(
+        f"  [bold green]✓ Full re-sweep complete: {total} runs in {total_h:.1f}h.[/]"
+    )
+
+
 def run_menu() -> None:
     """Display the RIDGE main menu and dispatch user selections."""
     setup_logging()
@@ -481,23 +469,21 @@ def run_menu() -> None:
         elif choice.upper() == "A":
             _run_training("configs/all_ones.yaml")
         elif choice == "6":
-            _run_sweep()
-        elif choice == "7":
             _do_live_viewer()
-        elif choice == "8":
+        elif choice == "7":
             _do_launch_tensorboard()
-        elif choice == "9":
+        elif choice == "8":
             _do_comparison_graphs()
-        elif choice == "10":
+        elif choice == "9":
             _do_evaluate()
-        elif choice == "11":
+        elif choice == "10":
             _run_sharpness_sweep()
         elif choice.upper() == "L":
             _do_live_dashboard()
         elif choice.upper() == "P":
             _do_post_training_dashboard()
-        elif choice.upper() == "M":
-            _do_multi_seed_run()
+        elif choice.upper() == "R":
+            _run_full_resweep()
         elif choice.upper() == "D":
             _do_delete_models()
         elif choice.upper() == "F":

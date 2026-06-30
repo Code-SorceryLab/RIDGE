@@ -100,9 +100,10 @@ class CrafterWrapper:
         """
         self._config = config
         self._seed = seed
-        self._env = crafter.Env()
-        # if seed is not None:
-        #     self._env.seed(seed)
+        # Seed Crafter explicitly so world generation is reproducible from `seed`
+        # alone, independent of NumPy global-RNG call ordering. crafter.Env draws
+        # its world seed at construction; passing it directly removes that coupling.
+        self._env = crafter.Env(seed=seed)
 
         self.action_space = self._env.action_space
         self.observation_space = self._env.observation_space
@@ -270,15 +271,6 @@ class CrafterWrapper:
             EpisodeStats instance for the ongoing episode.
         """
         return self._episode_stats
-
-    def seed(self, seed: int) -> None:
-        """Re-seed the underlying environment.
-
-        Args:
-            seed: New seed value.
-        """
-        self._seed = seed
-        self._env.seed(seed)
 
     def render(self) -> np.ndarray | None:
         """Render the current frame as an RGB array.

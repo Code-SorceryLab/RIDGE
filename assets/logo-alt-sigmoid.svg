@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="200" viewBox="0 0 640 200" role="img" aria-labelledby="ridgeTitle ridgeDesc">
+  <title id="ridgeTitle">RIDGE</title>
+  <desc id="ridgeDesc">RIDGE logo: a mountain ridgeline drawn as a smooth sigmoid curve sweeping through the four persona colors, with the wordmark RIDGE and the tagline State-Conditioned Reward Blending.</desc>
+  <defs>
+    <linearGradient id="ridgeSweep" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"  stop-color="#42A5F5"/>
+      <stop offset="33%" stop-color="#EF5350"/>
+      <stop offset="66%" stop-color="#FFA726"/>
+      <stop offset="100%" stop-color="#AB47BC"/>
+    </linearGradient>
+    <linearGradient id="ridgeFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#4CAF50" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#4CAF50" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="panelBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#1B2530"/>
+      <stop offset="100%" stop-color="#0E141B"/>
+    </linearGradient>
+    <clipPath id="iconClip">
+      <rect x="32" y="36" width="184" height="128" rx="14"/>
+    </clipPath>
+  </defs>
+
+  <rect x="2" y="2" width="636" height="196" rx="22" fill="url(#panelBg)" stroke="#4CAF50" stroke-opacity="0.55" stroke-width="1.5"/>
+
+  <g clip-path="url(#iconClip)">
+    <rect x="32" y="36" width="184" height="128" fill="#0A0F15"/>
+    <g stroke="#4CAF50" stroke-opacity="0.12" stroke-width="1">
+      <line x1="32" y1="68"  x2="216" y2="68"/>
+      <line x1="32" y1="100" x2="216" y2="100"/>
+      <line x1="32" y1="132" x2="216" y2="132"/>
+    </g>
+    <g fill="#7C8B98" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="9">
+      <text x="40" y="58">1</text>
+      <text x="40" y="156">0</text>
+    </g>
+
+    <path d="M44,149.8 L47.4,149.7 50.8,149.6 54.1,149.5 57.5,149.3 60.9,149.2 64.2,148.9 67.6,148.6 71,148.2 74.4,147.7 77.8,147.1 81.1,146.3 84.5,145.4 87.9,144.1 91.2,142.6 94.6,140.7 98,138.3 101.4,135.5 104.8,132.1 108.1,128.2 111.5,123.6 114.9,118.6 118.2,113 121.6,107.1 125,101 128.4,94.9 131.8,89 135.1,83.4 138.5,78.4 141.9,73.8 145.2,69.9 148.6,66.5 152,63.7 155.4,61.3 158.8,59.4 162.1,57.9 165.5,56.6 168.9,55.7 172.2,54.9 175.6,54.3 179,53.8 182.4,53.4 185.8,53.1 189.1,52.8 192.5,52.7 195.9,52.5 199.2,52.4 202.6,52.3 206,52.2 L206,164 L44,164 Z"
+          fill="url(#ridgeFill)"/>
+
+    <path d="M44,149.8 L47.4,149.7 50.8,149.6 54.1,149.5 57.5,149.3 60.9,149.2 64.2,148.9 67.6,148.6 71,148.2 74.4,147.7 77.8,147.1 81.1,146.3 84.5,145.4 87.9,144.1 91.2,142.6 94.6,140.7 98,138.3 101.4,135.5 104.8,132.1 108.1,128.2 111.5,123.6 114.9,118.6 118.2,113 121.6,107.1 125,101 128.4,94.9 131.8,89 135.1,83.4 138.5,78.4 141.9,73.8 145.2,69.9 148.6,66.5 152,63.7 155.4,61.3 158.8,59.4 162.1,57.9 165.5,56.6 168.9,55.7 172.2,54.9 175.6,54.3 179,53.8 182.4,53.4 185.8,53.1 189.1,52.8 192.5,52.7 195.9,52.5 199.2,52.4 202.6,52.3 206,52.2"
+          fill="none" stroke="url(#ridgeSweep)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <g stroke="#0A0F15" stroke-width="2.5">
+      <circle cx="74.4"  cy="147.7" r="4.6" fill="#42A5F5"/>
+      <circle cx="118.2" cy="113"   r="4.6" fill="#EF5350"/>
+      <circle cx="148.6" cy="66.5"  r="4.6" fill="#FFA726"/>
+      <circle cx="189.1" cy="52.8"  r="4.6" fill="#AB47BC"/>
+    </g>
+  </g>
+
+  <text x="250" y="106" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="66" font-weight="700" letter-spacing="3" fill="#FFFFFF">RIDGE</text>
+  <rect x="252" y="122" width="245" height="4" rx="2" fill="#4CAF50"/>
+  <text x="252" y="150" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="500" letter-spacing="1.2" fill="#C2CDD7">State-Conditioned Reward Blending</text>
+</svg>
